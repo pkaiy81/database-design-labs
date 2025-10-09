@@ -1,11 +1,10 @@
-// src/main/java/app/db/TxManager.java
-package main.java.app.db;
+package app.db;
 
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.function.Function;
 
-/** 明示的トランザクションのユーティリティ（try-with-resources対応） */
+/** Simple transactional runner using try-with-resources. */
 public final class TxManager {
     private final Db db;
 
@@ -16,7 +15,7 @@ public final class TxManager {
     public <T> T withTx(Function<Connection, T> action) {
         try (Connection con = db.getConnection()) {
             boolean prev = con.getAutoCommit();
-            con.setAutoCommit(false); // 明示トランザクション開始
+            con.setAutoCommit(false);
             try {
                 T result = action.apply(con);
                 con.commit();

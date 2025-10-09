@@ -12,4 +12,3 @@ plugins {
 }
 
 rootProject.name = "database-design-labs"
-include("app")

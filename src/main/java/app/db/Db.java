@@ -1,5 +1,4 @@
-// src/main/java/app/db/Db.java
-package main.java.app.db;
+package app.db;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -8,8 +7,7 @@ import java.sql.SQLException;
 import java.util.Objects;
 
 /**
- * 接続取得のための薄いラッパ。DataSource 優先、なければ DriverManager。
- * 書籍の趣旨どおり、DataSource で接続情報を隠蔽できる設計にしておく。
+ * Minimal connection helper. Prefer DataSource, but fall back to DriverManager.
  */
 public final class Db {
     private final DataSource dataSource;

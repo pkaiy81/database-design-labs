@@ -1,10 +1,8 @@
-// src/main/java/app/db/JdbcTemplate.java
-package main.java.app.db;
+package app.db;
 
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Function;
 
 public final class JdbcTemplate {
     private JdbcTemplate() {
