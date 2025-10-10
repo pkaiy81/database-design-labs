@@ -19,7 +19,8 @@ java {
 }
 
 application {
-    mainClass.set("app.example.ExampleMain")
+    // mainClass.set("app.example.ExampleMain")
+    mainClass.set("app.example.MemoryDemo")
 }
 
 tasks.test { useJUnitPlatform() }
