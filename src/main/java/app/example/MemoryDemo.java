@@ -8,7 +8,7 @@ import java.nio.file.Path;
 public class MemoryDemo {
     public static void main(String[] args) {
         // 第3章の実装を利用
-        FileMgr fm = new FileMgr(Path.of("./data"), 400);
+        FileMgr fm = new FileMgr(Path.of("./data"), 4096);
         BufferMgr bm = new BufferMgr(fm, fm.blockSize(), 3); // 3 枚のバッファ
 
         // 1) ファイルへ空ブロックを append

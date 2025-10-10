@@ -11,7 +11,7 @@ public class TxDemo {
         // 第3章（FileMgr）＆ 第4章（BufferMgr, LogManager）を利用
         var dataDir = Path.of("./data");
         var logDir = Path.of("./data"); // 同じ場所に simpledb.log
-        int blockSize = 400;
+        int blockSize = 4096;
 
         FileMgr fm = new FileMgr(dataDir, blockSize);
         BufferMgr bm = new BufferMgr(fm, blockSize, 4);

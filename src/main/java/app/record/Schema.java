@@ -18,12 +18,12 @@ public final class Schema {
         return this;
     }
 
-    Map<String, FieldDef> fields() {
+    public Map<String, FieldDef> fields() {
         return fields;
     }
 
-    static final class FieldDef {
-        final FieldType type;
+    public static final class FieldDef {
+        public final FieldType type;
         final int maxChars;
 
         FieldDef(FieldType t, int m) {
