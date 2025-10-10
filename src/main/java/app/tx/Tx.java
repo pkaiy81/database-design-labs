@@ -34,20 +34,24 @@ public final class Tx implements AutoCloseable {
         return txId;
     }
 
-    /** WAL順序で整数を書き換える：ログ→ログflush→ページ更新 */
+    // setInt: WAL → flush(log) → ページ更新 → dirty → flush(page)
     public void setInt(BlockId blk, int offset, int newVal) {
         Buffer buf = bm.pin(blk);
         try {
             Page p = buf.contents();
             int old = p.getInt(offset);
 
-            // 1) ログ（旧値）を先に永続化
+            // 1) 旧値をログへ
             log.append(LogCodec.setInt(txId, blk.filename(), blk.number(), offset, old));
-            log.flush(0); // ここでは簡略化：常にforce
+            log.flush(0); // ログを先に永続化（WAL）
 
-            // 2) ページを更新してdirtyに
+            // 2) ページ更新
             p.setInt(offset, newVal);
             buf.setDirty();
+
+            // 3) データもフラッシュ（サンプルでは即時書き戻しでシンプルに）
+            buf.flushIfDirty();
+
         } finally {
             bm.unpin(buf);
         }
@@ -75,6 +79,7 @@ public final class Tx implements AutoCloseable {
                 try {
                     buf.contents().setInt(parsed.offset, parsed.oldVal);
                     buf.setDirty();
+                    buf.flushIfDirty();
                 } finally {
                     bm.unpin(buf);
                 }

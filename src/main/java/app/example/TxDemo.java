@@ -25,6 +25,7 @@ public class TxDemo {
             var init = bm.pin(blk);
             init.contents().setInt(0, 0);
             init.setDirty();
+            init.flushIfDirty();
             bm.unpin(init);
 
             // 1) Tx1: +100 して commit
