@@ -21,7 +21,8 @@ java {
 application {
     // mainClass.set("app.example.ExampleMain")
     // mainClass.set("app.example.MemoryDemo")
-    mainClass.set("app.example.TxDemo")
+    // mainClass.set("app.example.TxDemo")
+    mainClass.set("app.example.RecordDemo")
 }
 
 tasks.test { useJUnitPlatform() }
