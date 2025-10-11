@@ -23,7 +23,8 @@ application {
     // mainClass.set("app.example.MemoryDemo")
     // mainClass.set("app.example.TxDemo")
     // mainClass.set("app.example.RecordDemo")
-    mainClass.set("app.example.MetadataDemo")
+    // mainClass.set("app.example.MetadataDemo")
+    mainClass.set("app.example.IndexDemo")
 }
 
 tasks.test { useJUnitPlatform() }

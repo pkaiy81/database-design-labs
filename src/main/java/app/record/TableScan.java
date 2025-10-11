@@ -118,4 +118,15 @@ public final class TableScan implements AutoCloseable {
     @Override
     public void close() {
         /* no resources */ }
+
+    // TableScan に追記（public メソッド）
+    // src/main/java/app/record/TableScan.java
+    public int currentBlockNumber() {
+        return currBlk;
+    }
+
+    public int currentSlot() {
+        return currSlot;
+    }
+
 }
