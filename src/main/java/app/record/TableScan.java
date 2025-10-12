@@ -4,7 +4,8 @@ import app.storage.BlockId;
 import app.storage.FileMgr;
 import app.storage.Page;
 
-public final class TableScan implements AutoCloseable {
+// public final class TableScan implements AutoCloseable {
+public final class TableScan implements app.query.Scan {
     private final FileMgr fm;
     private final TableFile tf;
 
