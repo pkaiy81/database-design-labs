@@ -25,7 +25,8 @@ application {
     // mainClass.set("app.example.RecordDemo")
     // mainClass.set("app.example.MetadataDemo")
     // mainClass.set("app.example.IndexDemo")
-    mainClass.set("app.example.QueryDemo")
+    // mainClass.set("app.example.QueryDemo")
+    mainClass.set("app.example.SqlDemo")
 }
 
 tasks.test { useJUnitPlatform() }
