@@ -13,44 +13,52 @@ public final class Ast {
         }
 
         public static final class Agg extends SelectItem {
-            public final String func; // COUNT/SUM/AVG/MIN/MAX
-            public final String arg; // COUNT(*) の場合 null
+            public final String func;
+            public final String arg;
 
-            public Agg(String func, String arg) {
-                this.func = func;
-                this.arg = arg;
+            public Agg(String f, String a) {
+                this.func = f;
+                this.arg = a;
             }
         }
     }
 
+    public static final class Having {
+        public final String func; // COUNT/SUM/AVG/MIN/MAX
+        public final String arg; // 列名 or null (COUNT(*))
+        public final String op; // ">", ">=", "<", "<=", "="
+        public final int rhs; // 右辺 int
+
+        public Having(String func, String arg, String op, int rhs) {
+            this.func = func;
+            this.arg = arg;
+            this.op = op;
+            this.rhs = rhs;
+        }
+    }
+
     public static final class SelectStmt {
+        public final boolean distinct;
         public final List<SelectItem> projections;
         public final From from;
         public final List<Join> joins;
         public final List<Predicate> where;
-        public final OrderBy orderBy;
-        public final Integer limit;
-        public final String groupBy;
+        public final String groupBy; // 単一列（null可）
+        public final Having having; // null 可
+        public final OrderBy orderBy; // null 可
+        public final Integer limit; // null 可
 
-        public SelectStmt(List<SelectItem> projections, From from, List<Join> joins,
-                List<Predicate> where, OrderBy orderBy, Integer limit, String groupBy) {
+        public SelectStmt(boolean distinct, List<SelectItem> projections, From from, List<Join> joins,
+                List<Predicate> where, String groupBy, Having having, OrderBy orderBy, Integer limit) {
+            this.distinct = distinct;
             this.projections = projections;
             this.from = from;
             this.joins = joins;
             this.where = where;
+            this.groupBy = groupBy;
+            this.having = having;
             this.orderBy = orderBy;
             this.limit = limit;
-            this.groupBy = groupBy;
-        }
-    }
-
-    public static final class OrderBy {
-        public final String field;
-        public final boolean asc;
-
-        public OrderBy(String f, boolean a) {
-            this.field = f;
-            this.asc = a;
         }
     }
 
@@ -69,6 +77,16 @@ public final class Ast {
         public Join(String t, Predicate p) {
             this.table = t;
             this.on = p;
+        }
+    }
+
+    public static final class OrderBy {
+        public final String field;
+        public final boolean asc;
+
+        public OrderBy(String f, boolean a) {
+            this.field = f;
+            this.asc = a;
         }
     }
 

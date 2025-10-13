@@ -14,6 +14,13 @@ public final class Parser {
 
     public Ast.SelectStmt parseSelect() {
         expect(SELECT);
+
+        boolean distinct = false;
+        if (lx.type() == DISTINCT) {
+            lx.next();
+            distinct = true;
+        }
+
         List<Ast.SelectItem> proj = parseProjectionItems();
         expect(FROM);
         String base = parseIdentQualified();
@@ -41,8 +48,14 @@ public final class Parser {
         String groupBy = null;
         if (lx.type() == GROUP) {
             lx.next();
-            expect(TokenType.BY);
+            expect(BY);
             groupBy = parseIdentQualified();
+        }
+
+        Ast.Having having = null;
+        if (lx.type() == HAVING) {
+            lx.next();
+            having = parseHaving();
         }
 
         Ast.OrderBy ob = null;
@@ -64,28 +77,95 @@ public final class Parser {
         Integer limit = null;
         if (lx.type() == LIMIT) {
             lx.next();
-            if (lx.type() != TokenType.INT)
+            if (lx.type() != INT)
                 throw err("LIMIT requires integer");
             limit = Integer.parseInt(lx.text());
             lx.next();
         }
 
         expect(EOF);
-        return new Ast.SelectStmt(proj, from, joins, where, ob, limit, groupBy);
+        return new Ast.SelectStmt(distinct, proj, from, joins, where, groupBy, having, ob, limit);
     }
 
-    private List<String> parseProjections() {
-        List<String> list = new ArrayList<>();
+    private Ast.Having parseHaving() {
+        // HAVING <AGG>(<col|*>) <op> <int>
+        String func = null, arg = null, opStr;
+        switch (lx.type()) {
+            case COUNT:
+            case SUM:
+            case AVG:
+            case MIN:
+            case MAX:
+                func = lx.type().name();
+                lx.next();
+                break;
+            default:
+                throw err("HAVING requires aggregate function");
+        }
+        expect(LPAREN);
         if (lx.type() == STAR) {
             lx.next();
-            return list;
-        } // empty means *
-        list.add(parseIdentQualified());
+            arg = null;
+        } else {
+            arg = parseIdentQualified();
+        }
+        expect(RPAREN);
+
+        // op
+        if (lx.type() == GT || lx.type() == GE || lx.type() == LT || lx.type() == LE || lx.type() == EQ) {
+            opStr = lx.text();
+            lx.next();
+        } else
+            throw err("HAVING operator");
+
+        if (lx.type() != INT)
+            throw err("HAVING rhs integer");
+        int rhs = Integer.parseInt(lx.text());
+        lx.next();
+
+        return new Ast.Having(func, arg, opStr, rhs);
+    }
+
+    private List<Ast.SelectItem> parseProjectionItems() {
+        List<Ast.SelectItem> list = new ArrayList<>();
+        list.add(parseProjectionItem());
         while (lx.type() == COMMA) {
             lx.next();
-            list.add(parseIdentQualified());
+            list.add(parseProjectionItem());
         }
         return list;
+    }
+
+    private Ast.SelectItem parseProjectionItem() {
+        switch (lx.type()) {
+            case STAR:
+                lx.next();
+                return new Ast.SelectItem.Column("*");
+            case COUNT:
+            case SUM:
+            case AVG:
+            case MIN:
+            case MAX: {
+                String func = lx.type().name();
+                lx.next();
+                expect(LPAREN);
+                String arg = null;
+                if (lx.type() == STAR) {
+                    lx.next();
+                    arg = null;
+                } else {
+                    arg = parseIdentQualified();
+                }
+                expect(RPAREN);
+                return new Ast.SelectItem.Agg(func, arg);
+            }
+            case IDENT: {
+                String col = parseIdentQualified();
+                return new Ast.SelectItem.Column(col);
+            }
+            default:
+                throw err("projection item");
+        }
     }
 
     private Ast.Predicate parseEqPredicate() {
@@ -130,49 +210,6 @@ public final class Parser {
             return a + "." + b;
         }
         return a;
-    }
-
-    private List<Ast.SelectItem> parseProjectionItems() {
-        List<Ast.SelectItem> list = new ArrayList<>();
-        list.add(parseProjectionItem());
-        while (lx.type() == TokenType.COMMA) {
-            lx.next();
-            list.add(parseProjectionItem());
-        }
-        return list;
-    }
-
-    private Ast.SelectItem parseProjectionItem() {
-        switch (lx.type()) {
-            case STAR:
-                lx.next();
-                return new Ast.SelectItem.Column("*"); // 簡易対応（* は集約と併用しない前提）
-            case COUNT:
-            case SUM:
-            case AVG:
-            case MIN:
-            case MAX: {
-                String func = lx.type().name();
-                lx.next();
-                expect(TokenType.LPAREN);
-                String arg = null;
-                if (lx.type() == TokenType.STAR) {
-                    lx.next();
-                    arg = null;
-                } // COUNT(*)
-                else {
-                    arg = parseIdentQualified();
-                }
-                expect(TokenType.RPAREN);
-                return new Ast.SelectItem.Agg(func, arg);
-            }
-            case IDENT: {
-                String col = parseIdentQualified();
-                return new Ast.SelectItem.Column(col);
-            }
-            default:
-                throw err("projection item");
-        }
     }
 
     private void expect(TokenType t) {

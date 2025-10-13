@@ -60,6 +60,29 @@ public final class Lexer {
                 type = TokenType.RPAREN;
                 text = ")";
                 return;
+            // 記号（>= <=）
+            case '>':
+                i++;
+                if (i < s.length() && s.charAt(i) == '=') {
+                    i++;
+                    type = TokenType.GE;
+                    text = ">=";
+                    return;
+                }
+                type = TokenType.GT;
+                text = ">";
+                return;
+            case '<':
+                i++;
+                if (i < s.length() && s.charAt(i) == '=') {
+                    i++;
+                    type = TokenType.LE;
+                    text = "<=";
+                    return;
+                }
+                type = TokenType.LT;
+                text = "<";
+                return;
             case '\'':
                 readString();
                 return;
@@ -105,6 +128,9 @@ public final class Lexer {
             case "SELECT":
                 type = TokenType.SELECT;
                 break;
+            case "DISTINCT":
+                type = TokenType.DISTINCT;
+                break;
             case "FROM":
                 type = TokenType.FROM;
                 break;
@@ -120,23 +146,11 @@ public final class Lexer {
             case "AND":
                 type = TokenType.AND;
                 break;
-            case "ORDER":
-                type = TokenType.ORDER;
-                break;
-            case "BY":
-                type = TokenType.BY;
-                break;
-            case "LIMIT":
-                type = TokenType.LIMIT;
-                break;
-            case "ASC":
-                type = TokenType.ASC;
-                break;
-            case "DESC":
-                type = TokenType.DESC;
-                break;
             case "GROUP":
                 type = TokenType.GROUP;
+                break;
+            case "HAVING":
+                type = TokenType.HAVING;
                 break;
             case "COUNT":
                 type = TokenType.COUNT;
@@ -152,6 +166,21 @@ public final class Lexer {
                 break;
             case "MAX":
                 type = TokenType.MAX;
+                break;
+            case "ORDER":
+                type = TokenType.ORDER;
+                break;
+            case "BY":
+                type = TokenType.BY;
+                break;
+            case "LIMIT":
+                type = TokenType.LIMIT;
+                break;
+            case "ASC":
+                type = TokenType.ASC;
+                break;
+            case "DESC":
+                type = TokenType.DESC;
                 break;
             default:
                 type = TokenType.IDENT;

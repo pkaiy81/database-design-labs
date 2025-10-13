@@ -30,7 +30,8 @@ application {
     // mainClass.set("app.example.OptimizerDemo")
     // mainClass.set("app.example.IndexJoinDemo")
     // mainClass.set("app.example.OrderLimitDemo")
-    mainClass.set("app.example.GroupByDemo") 
+    // mainClass.set("app.example.GroupByDemo") 
+    mainClass.set("app.example.DistinctHavingDemo")
 }
 
 tasks.test { useJUnitPlatform() }

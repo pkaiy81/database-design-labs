@@ -121,6 +121,20 @@ public final class Planner {
             if (!outputCols.isEmpty()) {
                 s = new ProjectScan(s, outputCols);
             }
+
+            // HAVING（単一条件）
+            if (ast.having != null) {
+                String outName = toAggOutName(ast.having.func, ast.having.arg); // count / sum_x / ...
+                var op = switch (ast.having.op) {
+                    case ">" -> app.query.HavingScan.Op.GT;
+                    case ">=" -> app.query.HavingScan.Op.GE;
+                    case "<" -> app.query.HavingScan.Op.LT;
+                    case "<=" -> app.query.HavingScan.Op.LE;
+                    case "=" -> app.query.HavingScan.Op.EQ;
+                    default -> throw new IllegalArgumentException("unsupported HAVING op: " + ast.having.op);
+                };
+                s = new app.query.HavingScan(s, outName, op, ast.having.rhs);
+            }
         } else {
             // 非集約時の PROJECTION
             boolean hasStar = ast.projections.stream()
@@ -139,6 +153,22 @@ public final class Planner {
                 // SELECT * のときは、ORDER BY 用に最低限 並べ替えキーを後で carry します
                 outputCols.clear();
             }
+        }
+
+        // === DISTINCT（ORDER/LIMIT の前に）===
+        if (ast.distinct) {
+            // DISTINCT は ProjectScan 後の可視列に対して適用する
+            List<String> cols;
+            if (outputCols.isEmpty()) { // SELECT * の場合の簡易処理
+                if (ast.groupBy != null || hasAgg) { // 集約系 * は列名が明確なので outCols を使う
+                    cols = new java.util.ArrayList<>(outputCols);
+                } else {
+                    throw new IllegalArgumentException("DISTINCT with SELECT * is not supported in this minimal impl");
+                }
+            } else {
+                cols = outputCols;
+            }
+            s = new app.query.DistinctScan(s, cols);
         }
 
         // === ORDER BY（単一列）===
@@ -174,4 +204,21 @@ public final class Planner {
         }
         throw new IllegalArgumentException("unsupported predicate");
     }
+
+    private static String strip(String name) {
+        return (name != null && name.contains(".")) ? name.substring(name.indexOf('.') + 1) : name;
+    }
+
+    private static String toAggOutName(String func, String arg) {
+        String a = (arg == null) ? null : strip(arg);
+        return switch (func) {
+            case "COUNT" -> "count";
+            case "SUM" -> "sum_" + a;
+            case "AVG" -> "avg_" + a;
+            case "MIN" -> "min_" + a;
+            case "MAX" -> "max_" + a;
+            default -> throw new IllegalArgumentException("unknown agg: " + func);
+        };
+    }
+
 }
