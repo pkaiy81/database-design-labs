@@ -34,10 +34,36 @@ public final class Planner {
 
         // JOIN
         for (Ast.Join j : ast.joins) {
-            Layout jl = mdm.getLayout(j.table);
-            TableFile jtf = new TableFile(fm, j.table + ".tbl", jl);
-            s = new ProductScan(s, new TableScan(fm, jtf));
-            s = new SelectScan(s, toPredicate(j.on));
+            Layout rightLayout = mdm.getLayout(j.table);
+            TableFile rightTf = new TableFile(fm, j.table + ".tbl", rightLayout);
+
+            // ON 左=右 を抽出（列名。修飾があれば末尾名を使用）
+            String leftCol = null, rightCol = null;
+            if (j.on.left instanceof Ast.Expr.Col && j.on.right instanceof Ast.Expr.Col) {
+                String l = ((Ast.Expr.Col) j.on.left).name;
+                String r = ((Ast.Expr.Col) j.on.right).name;
+                // 右表の列がどちらかを判定（単純に列名一致で右表に存在すると仮定／実用ではメタデータで精査）
+                // ここでは「右側の識別子が rightTable 側」とみなす
+                rightCol = r.contains(".") ? r.substring(r.indexOf('.') + 1) : r;
+                leftCol = l.contains(".") ? l.substring(l.indexOf('.') + 1) : l;
+            }
+
+            boolean usedIndex = false;
+            if (idxReg != null && rightCol != null) {
+                System.out.println("[PLAN] join with index");
+                var opt = idxReg.findHashIndex(j.table, rightCol);
+                if (opt.isPresent()) {
+                    // 索引付き結合
+                    s = new app.query.IndexJoinScan(s, fm, rightLayout, j.table + ".tbl", opt.get(), leftCol, rightCol);
+                    usedIndex = true;
+                }
+            }
+            if (!usedIndex) {
+                System.out.println("[PLAN] join without index");
+                // フォールバック：直積＋等値選択
+                s = new ProductScan(s, new TableScan(fm, rightTf));
+                s = new SelectScan(s, toPredicate(j.on));
+            }
         }
 
         // WHERE（1表かつ等値 かつ 登録済みハッシュ索引があれば、IndexSelectScan に置換）

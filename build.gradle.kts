@@ -27,7 +27,8 @@ application {
     // mainClass.set("app.example.IndexDemo")
     // mainClass.set("app.example.QueryDemo")
     // mainClass.set("app.example.SqlDemo")
-    mainClass.set("app.example.OptimizerDemo")
+    // mainClass.set("app.example.OptimizerDemo")
+    mainClass.set("app.example.IndexJoinDemo")
 }
 
 tasks.test { useJUnitPlatform() }
