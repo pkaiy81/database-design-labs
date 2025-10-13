@@ -92,6 +92,20 @@ public final class Planner {
         if (!ast.projections.isEmpty()) {
             s = new ProjectScan(s, ast.projections);
         }
+
+        // ORDER BY（単一列）
+        if (ast.orderBy != null) {
+            String fld = ast.orderBy.field.contains(".")
+                    ? ast.orderBy.field.substring(ast.orderBy.field.indexOf('.') + 1)
+                    : ast.orderBy.field;
+            s = new OrderByScan(s, fld, ast.orderBy.asc);
+        }
+
+        // LIMIT
+        if (ast.limit != null) {
+            s = new LimitScan(s, ast.limit);
+        }
+
         return s;
     }
 

@@ -37,8 +37,34 @@ public final class Parser {
                 where.add(parseEqPredicate());
             }
         }
+
+        Ast.OrderBy ob = null;
+        if (lx.type() == ORDER) {
+            lx.next();
+            expect(BY);
+            String fld = parseIdentQualified();
+            boolean asc = true;
+            if (lx.type() == ASC) {
+                lx.next();
+                asc = true;
+            } else if (lx.type() == DESC) {
+                lx.next();
+                asc = false;
+            }
+            ob = new Ast.OrderBy(fld, asc);
+        }
+
+        Integer limit = null;
+        if (lx.type() == LIMIT) {
+            lx.next();
+            if (lx.type() != TokenType.INT)
+                throw err("LIMIT requires integer");
+            limit = Integer.parseInt(lx.text());
+            lx.next();
+        }
+
         expect(EOF);
-        return new Ast.SelectStmt(proj, from, joins, where);
+        return new Ast.SelectStmt(proj, from, joins, where, ob, limit);
     }
 
     private List<String> parseProjections() {

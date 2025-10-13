@@ -120,6 +120,21 @@ public final class Lexer {
             case "AND":
                 type = TokenType.AND;
                 break;
+            case "ORDER":
+                type = TokenType.ORDER;
+                break;
+            case "BY":
+                type = TokenType.BY;
+                break;
+            case "LIMIT":
+                type = TokenType.LIMIT;
+                break;
+            case "ASC":
+                type = TokenType.ASC;
+                break;
+            case "DESC":
+                type = TokenType.DESC;
+                break;
             default:
                 type = TokenType.IDENT;
                 raw = raw;

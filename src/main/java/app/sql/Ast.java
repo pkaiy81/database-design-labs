@@ -8,12 +8,27 @@ public final class Ast {
         public final From from;
         public final List<Join> joins; // 0個でも可
         public final List<Predicate> where; // AND で連結
+        public final OrderBy orderBy;
+        public final Integer limit;
 
-        public SelectStmt(List<String> projections, From from, List<Join> joins, List<Predicate> where) {
+        public SelectStmt(List<String> projections, From from, List<Join> joins,
+                List<Predicate> where, OrderBy orderBy, Integer limit) {
             this.projections = projections;
             this.from = from;
             this.joins = joins;
             this.where = where;
+            this.orderBy = orderBy;
+            this.limit = limit;
+        }
+    }
+
+    public static final class OrderBy {
+        public final String field;
+        public final boolean asc;
+
+        public OrderBy(String f, boolean a) {
+            this.field = f;
+            this.asc = a;
         }
     }
 
