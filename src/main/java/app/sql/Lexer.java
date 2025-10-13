@@ -135,6 +135,24 @@ public final class Lexer {
             case "DESC":
                 type = TokenType.DESC;
                 break;
+            case "GROUP":
+                type = TokenType.GROUP;
+                break;
+            case "COUNT":
+                type = TokenType.COUNT;
+                break;
+            case "SUM":
+                type = TokenType.SUM;
+                break;
+            case "AVG":
+                type = TokenType.AVG;
+                break;
+            case "MIN":
+                type = TokenType.MIN;
+                break;
+            case "MAX":
+                type = TokenType.MAX;
+                break;
             default:
                 type = TokenType.IDENT;
                 raw = raw;

@@ -3,22 +3,44 @@ package app.sql;
 import java.util.*;
 
 public final class Ast {
+    public static abstract class SelectItem {
+        public static final class Column extends SelectItem {
+            public final String name;
+
+            public Column(String n) {
+                this.name = n;
+            }
+        }
+
+        public static final class Agg extends SelectItem {
+            public final String func; // COUNT/SUM/AVG/MIN/MAX
+            public final String arg; // COUNT(*) の場合 null
+
+            public Agg(String func, String arg) {
+                this.func = func;
+                this.arg = arg;
+            }
+        }
+    }
+
     public static final class SelectStmt {
-        public final List<String> projections; // empty なら *
+        public final List<SelectItem> projections;
         public final From from;
-        public final List<Join> joins; // 0個でも可
-        public final List<Predicate> where; // AND で連結
+        public final List<Join> joins;
+        public final List<Predicate> where;
         public final OrderBy orderBy;
         public final Integer limit;
+        public final String groupBy;
 
-        public SelectStmt(List<String> projections, From from, List<Join> joins,
-                List<Predicate> where, OrderBy orderBy, Integer limit) {
+        public SelectStmt(List<SelectItem> projections, From from, List<Join> joins,
+                List<Predicate> where, OrderBy orderBy, Integer limit, String groupBy) {
             this.projections = projections;
             this.from = from;
             this.joins = joins;
             this.where = where;
             this.orderBy = orderBy;
             this.limit = limit;
+            this.groupBy = groupBy;
         }
     }
 

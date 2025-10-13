@@ -14,7 +14,7 @@ public final class Parser {
 
     public Ast.SelectStmt parseSelect() {
         expect(SELECT);
-        List<String> proj = parseProjections();
+        List<Ast.SelectItem> proj = parseProjectionItems();
         expect(FROM);
         String base = parseIdentQualified();
         Ast.From from = new Ast.From(base);
@@ -36,6 +36,13 @@ public final class Parser {
                 lx.next();
                 where.add(parseEqPredicate());
             }
+        }
+
+        String groupBy = null;
+        if (lx.type() == GROUP) {
+            lx.next();
+            expect(TokenType.BY);
+            groupBy = parseIdentQualified();
         }
 
         Ast.OrderBy ob = null;
@@ -64,7 +71,7 @@ public final class Parser {
         }
 
         expect(EOF);
-        return new Ast.SelectStmt(proj, from, joins, where, ob, limit);
+        return new Ast.SelectStmt(proj, from, joins, where, ob, limit, groupBy);
     }
 
     private List<String> parseProjections() {
@@ -123,6 +130,49 @@ public final class Parser {
             return a + "." + b;
         }
         return a;
+    }
+
+    private List<Ast.SelectItem> parseProjectionItems() {
+        List<Ast.SelectItem> list = new ArrayList<>();
+        list.add(parseProjectionItem());
+        while (lx.type() == TokenType.COMMA) {
+            lx.next();
+            list.add(parseProjectionItem());
+        }
+        return list;
+    }
+
+    private Ast.SelectItem parseProjectionItem() {
+        switch (lx.type()) {
+            case STAR:
+                lx.next();
+                return new Ast.SelectItem.Column("*"); // 簡易対応（* は集約と併用しない前提）
+            case COUNT:
+            case SUM:
+            case AVG:
+            case MIN:
+            case MAX: {
+                String func = lx.type().name();
+                lx.next();
+                expect(TokenType.LPAREN);
+                String arg = null;
+                if (lx.type() == TokenType.STAR) {
+                    lx.next();
+                    arg = null;
+                } // COUNT(*)
+                else {
+                    arg = parseIdentQualified();
+                }
+                expect(TokenType.RPAREN);
+                return new Ast.SelectItem.Agg(func, arg);
+            }
+            case IDENT: {
+                String col = parseIdentQualified();
+                return new Ast.SelectItem.Column(col);
+            }
+            default:
+                throw err("projection item");
+        }
     }
 
     private void expect(TokenType t) {

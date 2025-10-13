@@ -29,7 +29,8 @@ application {
     // mainClass.set("app.example.SqlDemo")
     // mainClass.set("app.example.OptimizerDemo")
     // mainClass.set("app.example.IndexJoinDemo")
-    mainClass.set("app.example.OrderLimitDemo")
+    // mainClass.set("app.example.OrderLimitDemo")
+    mainClass.set("app.example.GroupByDemo") 
 }
 
 tasks.test { useJUnitPlatform() }
