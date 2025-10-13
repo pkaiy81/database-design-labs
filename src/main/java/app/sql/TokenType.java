@@ -1,0 +1,10 @@
+package app.sql;
+
+public enum TokenType {
+    IDENT, INT, STRING,
+    STAR, COMMA, DOT, EQ, GT, LT, GE, LE, LPAREN, RPAREN,
+    SELECT, DISTINCT, FROM, WHERE, JOIN, ON, AND,
+    GROUP, HAVING, COUNT, SUM, AVG, MIN, MAX,
+    ORDER, BY, LIMIT, ASC, DESC,
+    EOF
+}
