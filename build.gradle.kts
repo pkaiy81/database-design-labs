@@ -3,6 +3,10 @@ plugins {
     application
 }
 
+tasks.named<JavaExec>("run") {
+    standardInput = System.`in`
+}
+
 group = "app"
 version = "0.1.0"
 
@@ -31,7 +35,10 @@ application {
     // mainClass.set("app.example.IndexJoinDemo")
     // mainClass.set("app.example.OrderLimitDemo")
     // mainClass.set("app.example.GroupByDemo") 
-    mainClass.set("app.example.DistinctHavingDemo")
+    // mainClass.set("app.example.DistinctHavingDemo")
+    // Interactive SQL CLI
+    mainClass.set("app.cli.SimpleIJ")
+    applicationName = "minidb"
 }
 
 tasks.test { useJUnitPlatform() }
