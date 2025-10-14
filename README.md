@@ -132,7 +132,7 @@ sql> :exit
   * `:plan on|off` … [PLAN] ログ表示のガイド（演算子側の出力想定。必要なら連動に拡張可）
 * **SQL 入力**
 
-  * `SELECT` 文を 1 行で入力するか、**末尾に `;`** を付けて実行
+  * `SQL` 文を実行する場合には**末尾に `;`** を付けて実行
   * 対応句：`WHERE(=)`, `JOIN ... ON`, `ORDER BY`, `LIMIT`, `DISTINCT`, `GROUP BY`, `HAVING`
 
 ---

@@ -73,8 +73,11 @@ public class SimpleIJ {
             } else {
                 // 1行で完結させたいならここで即実行（末尾;なし）
                 // 行継続にしたい場合はセミコロンを使う
-                exec(buf.toString());
-                buf.setLength(0);
+                // exec(buf.toString());
+                // buf.setLength(0);
+		// セミコロンがない場合は、次の行を待つ
+		buf.append(" "); // スペースを入れて次の行と連結（任意）
+		// 実行しない（ユーザーが ; を入力するまで継続）
             }
         }
     }
