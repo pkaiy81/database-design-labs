@@ -24,7 +24,10 @@ hs_err_pid*
 replay_pid*
 
 # additional
+Note
 Note.md
+Summary.md
+Description.md
 
 # Ignore Gradle project-specific cache directory
 .gradle
