@@ -2,8 +2,6 @@
 
 Reference: Database Design and Implementation Second Edition
 
-以下は、**インストール型（.bat/.sh スクリプト生成）**での起動手順を取り込んだ README の更新版です。差し替え/追記にそのまま使えます。
-
 ---
 
 ## MiniRDB — README（最終版 / インストール起動対応）
