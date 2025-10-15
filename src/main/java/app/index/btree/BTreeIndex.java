@@ -77,20 +77,57 @@ public final class BTreeIndex implements Index {
         return r;
     }
 
+    private void growNewRootFromLeaf(DirEntry up, BlockId leftLeaf) throws Exception {
+        // 新ルートを作り、左右の葉を指す
+        BlockId newRoot = fm.append(indexFile);
+        try (BTPage p = new BTPage(fm, newRoot)) {
+            p.formatDir(1);
+            p.setKeyCount(0);
+            try (BTreeDirPage dir = new BTreeDirPage(fm, newRoot)) {
+                dir.insertEntry(new DirEntry(Integer.MIN_VALUE, leftLeaf.number()));
+                dir.insertEntry(up);
+            }
+        }
+        // ルート更新
+        this.root = newRoot;
+    }
+
+    private void growNewRootFromDir(DirEntry up, BlockId oldRoot) throws Exception {
+        BlockId newRoot = fm.append(indexFile);
+        try (BTPage p = new BTPage(fm, newRoot)) {
+            p.formatDir(2);
+            p.setKeyCount(0);
+            try (BTreeDirPage dir = new BTreeDirPage(fm, newRoot)) {
+                dir.insertEntry(new DirEntry(Integer.MIN_VALUE, oldRoot.number()));
+                dir.insertEntry(up);
+            }
+        }
+        this.root = newRoot;
+    }
+
     @Override
     public void insert(SearchKey key, RID rid) {
         try {
+            // 分割情報を受け取りつつ再帰挿入
             DirEntry up = insertRec(root, key.asInt(), rid);
+
+            if (up == null)
+                return; // ルート成長不要
+
             if (up != null) {
-                // ルート分割処理（簡易版）
-                try (BTPage rp = new BTPage(fm, root)) {
-                    int oldLevel = rp.level();
-                    var moved = rp.splitDir(0); // 旧ルート内容を右へ移送
-                    rp.formatDir(oldLevel + 1); // ルートを内部ノード化
-                    rp.setKeyCount(0);
-                    try (BTreeDirPage dir = new BTreeDirPage(fm, root)) {
-                        dir.insertEntry(new DirEntry(Integer.MIN_VALUE, moved.number())); // 左子
-                        dir.insertEntry(up); // 右子
+                try (BTPage rootPage = new BTPage(fm, root)) {
+                    if (rootPage.isLeaf()) {
+                        // ルートが葉だった → 葉2枚をぶら下げる新ルートを新規作成
+                        growNewRootFromLeaf(up, root);
+                    } else {
+                        DirEntry up2;
+                        try (BTreeDirPage dir = new BTreeDirPage(fm, root)) {
+                            up2 = dir.insertEntry(up); // ルートに入れてみる
+                        }
+                        if (up2 != null) {
+                            // ルートも溢れた → 旧ルートと up2.child をぶら下げる新ルートを新規作成
+                            growNewRootFromDir(up2, root);
+                        }
                     }
                 }
             }
