@@ -1,0 +1,145 @@
+package app.index.btree;
+
+import app.index.Index;
+import app.index.RangeCursor;
+import app.index.SearchKey;
+import app.index.RID; // ← ここを app.index に修正
+import app.storage.BlockId;
+import app.storage.FileMgr;
+
+public final class BTreeIndex implements Index {
+    private final FileMgr fm;
+    private final String indexFile;
+    private final String dataFileName; // RID 復元のために必要
+
+    private BlockId root;
+    private BTreeLeafPage leaf;
+    private int slot = -1;
+    private int currKey;
+
+    public BTreeIndex(FileMgr fm, String indexFile, String dataFileName) throws Exception {
+        this.fm = fm;
+        this.indexFile = indexFile;
+        this.dataFileName = dataFileName;
+
+        if (fm.length(indexFile) == 0) {
+            root = fm.append(indexFile);
+            try (BTPage p = new BTPage(fm, root)) {
+                p.formatLeaf();
+                p.flush();
+            }
+        } else {
+            root = new BlockId(indexFile, 0);
+        }
+    }
+
+    @Override
+    public void open() {
+        /* no-op */ }
+
+    @Override
+    public void beforeFirst(SearchKey key) {
+        closeLeafIfAny();
+        BlockId child = root;
+        while (true) {
+            try (BTPage p = new BTPage(fm, child)) {
+                if (p.isLeaf())
+                    break;
+            }
+            try (BTreeDirPage dir = new BTreeDirPage(fm, child)) {
+                child = dir.findChildBlock(key.asInt());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
+        leaf = new BTreeLeafPage(fm, child, dataFileName); // ← dataFileName を渡す
+        slot = leaf.lowerBound(key.asInt());
+        currKey = key.asInt();
+    }
+
+    @Override
+    public boolean next() {
+        if (leaf == null)
+            return false;
+        while (slot < leaf.keyCount()) {
+            int k = leaf.keyAt(slot);
+            if (k != currKey)
+                return false;
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public RID getDataRid() {
+        RID r = leaf.ridAt(slot);
+        slot++;
+        return r;
+    }
+
+    @Override
+    public void insert(SearchKey key, RID rid) {
+        try {
+            DirEntry up = insertRec(root, key.asInt(), rid);
+            if (up != null) {
+                // ルート分割処理（簡易版）
+                try (BTPage rp = new BTPage(fm, root)) {
+                    int oldLevel = rp.level();
+                    var moved = rp.splitDir(0); // 旧ルート内容を右へ移送
+                    rp.formatDir(oldLevel + 1); // ルートを内部ノード化
+                    rp.setKeyCount(0);
+                    try (BTreeDirPage dir = new BTreeDirPage(fm, root)) {
+                        dir.insertEntry(new DirEntry(Integer.MIN_VALUE, moved.number())); // 左子
+                        dir.insertEntry(up); // 右子
+                    }
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private DirEntry insertRec(BlockId blk, int key, RID rid) throws Exception {
+        try (BTPage raw = new BTPage(fm, blk)) {
+            if (raw.isLeaf()) {
+                try (BTreeLeafPage lf = new BTreeLeafPage(fm, blk, dataFileName)) {
+                    int pos = lf.lowerBound(key);
+                    lf.insertAt(pos, key, rid);
+                    if (!lf.isFull())
+                        return null;
+                    return lf.splitAndPromote();
+                }
+            } else {
+                try (BTreeDirPage dir = new BTreeDirPage(fm, blk)) {
+                    BlockId child = dir.findChildBlock(key);
+                    DirEntry childUp = insertRec(child, key, rid);
+                    if (childUp == null)
+                        return null;
+                    return dir.insertEntry(childUp);
+                }
+            }
+        }
+    }
+
+    @Override
+    public void delete(SearchKey key, RID rid) {
+        throw new UnsupportedOperationException("delete: to be implemented in Step 5");
+    }
+
+    @Override
+    public RangeCursor range(SearchKey low, boolean li, SearchKey high, boolean hi) {
+        throw new UnsupportedOperationException("range: to be implemented in Step 4");
+    }
+
+    private void closeLeafIfAny() {
+        if (leaf != null) {
+            leaf.close();
+            leaf = null;
+        }
+    }
+
+    @Override
+    public void close() {
+        closeLeafIfAny();
+    }
+}
