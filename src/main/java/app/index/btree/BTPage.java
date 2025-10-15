@@ -221,6 +221,27 @@ class BTPage implements Closeable {
         setNext(-1);
     }
 
+    // --- leaf navigation helpers
+    int leafPrev() {
+        return prev();
+    }
+
+    int leafNext() {
+        return next();
+    }
+
+    // --- remove leaf slot at position (left-shift)
+    void removeLeafAt(int slot) {
+        int n = keyCount();
+        for (int i = slot + 1; i < n; i++) {
+            int k = leafKey(i);
+            int b = leafBlockNo(i);
+            int s = leafRidSlot(i);
+            setLeafSlotRaw(i - 1, k, b, s);
+        }
+        setKeyCount(n - 1);
+    }
+
     void flush() {
         fm.write(blk, p);
     }

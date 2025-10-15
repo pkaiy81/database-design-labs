@@ -60,6 +60,18 @@ final class BTreeLeafPage implements AutoCloseable {
         return keyCount() >= capacity();
     }
 
+    int nextLeafBlockNo() {
+        return page.leafNext();
+    }
+
+    int prevLeafBlockNo() {
+        return page.leafPrev();
+    }
+
+    static BTreeLeafPage open(FileMgr fm, String dataFileName, String idxFile, int blockNo) {
+        return new BTreeLeafPage(fm, new BlockId(idxFile, blockNo), dataFileName);
+    }
+
     @Override
     public void close() {
         page.close();

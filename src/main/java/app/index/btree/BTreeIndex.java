@@ -127,8 +127,28 @@ public final class BTreeIndex implements Index {
     }
 
     @Override
-    public RangeCursor range(SearchKey low, boolean li, SearchKey high, boolean hi) {
-        throw new UnsupportedOperationException("range: to be implemented in Step 4");
+    public RangeCursor range(SearchKey low, boolean lowInc, SearchKey high, boolean highInc) {
+        // 1) 起点となる key（low があれば low、なければ最小相当）を使って葉へ降下
+        int startKey = (low != null) ? low.asInt() : Integer.MIN_VALUE;
+
+        BlockId child = root;
+        while (true) {
+            try (BTPage p = new BTPage(fm, child)) {
+                if (p.isLeaf())
+                    break;
+            }
+            try (BTreeDirPage dir = new BTreeDirPage(fm, child)) {
+                child = dir.findChildBlock(startKey);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        BTreeLeafPage startLeaf = new BTreeLeafPage(fm, child, dataFileName);
+        int startSlot = startLeaf.lowerBound(startKey);
+
+        return new BTreeRangeCursor(
+                fm, indexFile, dataFileName, low, lowInc, high, highInc, startLeaf, startSlot);
     }
 
     private void closeLeafIfAny() {
