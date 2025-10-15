@@ -72,6 +72,10 @@ final class BTreeLeafPage implements AutoCloseable {
         return new BTreeLeafPage(fm, new BlockId(idxFile, blockNo), dataFileName);
     }
 
+    void removeAt(int slot) {
+        page.removeLeafAt(slot);
+    }
+
     @Override
     public void close() {
         page.close();

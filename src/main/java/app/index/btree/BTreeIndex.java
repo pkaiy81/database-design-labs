@@ -123,7 +123,34 @@ public final class BTreeIndex implements Index {
 
     @Override
     public void delete(SearchKey key, RID rid) {
-        throw new UnsupportedOperationException("delete: to be implemented in Step 5");
+        // 1) key の葉へ降下
+        BlockId child = root;
+        while (true) {
+            try (BTPage p = new BTPage(fm, child)) {
+                if (p.isLeaf())
+                    break;
+            }
+            try (BTreeDirPage dir = new BTreeDirPage(fm, child)) {
+                child = dir.findChildBlock(key.asInt());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        try (BTreeLeafPage lf = new BTreeLeafPage(fm, child, dataFileName)) {
+            int pos = lf.lowerBound(key.asInt());
+            // 同一キー範囲を線形に見て、RID 一致を削除
+            while (pos < lf.keyCount() && lf.keyAt(pos) == key.asInt()) {
+                RID r = lf.ridAt(pos);
+                if (r.equals(rid)) {
+                    lf.removeAt(pos);
+                    return; // 1件だけ削除（重複が複数ある場合は呼び出し側で複数回呼ぶ）
+                }
+                pos++;
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
