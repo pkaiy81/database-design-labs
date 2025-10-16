@@ -12,15 +12,15 @@ final class BTreeRangeCursor implements RangeCursor {
     private final SearchKey low, high;
     private final boolean lowInc, highInc;
 
-    private BTreeLeafPage leaf; // 現在の葉
-    private int slot; // 現在スロット（次に読む位置）
-    private boolean initialized = false;
+    private BTreeLeafPage leaf;
+    private int slot;
     private RID currentRid;
 
     BTreeRangeCursor(
-            FileMgr fm, String indexFile, String dataFileName,
-            SearchKey low, boolean lowInc, SearchKey high, boolean highInc,
-            BTreeLeafPage startLeaf, int startSlot) {
+        FileMgr fm, String indexFile, String dataFileName,
+        SearchKey low, boolean lowInc, SearchKey high, boolean highInc,
+        BTreeLeafPage startLeaf, int startSlot
+    ){
         this.fm = fm;
         this.indexFile = indexFile;
         this.dataFileName = dataFileName;
@@ -34,47 +34,16 @@ final class BTreeRangeCursor implements RangeCursor {
 
     @Override
     public boolean next() {
-        if (!initialized) {
-            initialized = true;
-            return advance();
-        }
-        return advance();
-    }
-
-    private boolean withinHigh(int key) {
-        if (high == null)
-            return true; // 上限なし
-        int cmp = Integer.compare(key, high.asInt());
-        return highInc ? (cmp <= 0) : (cmp < 0);
-    }
-
-    private boolean withinLow(int key) {
-        if (low == null)
-            return true; // 下限なし
-        int cmp = Integer.compare(key, low.asInt());
-        return lowInc ? (cmp >= 0) : (cmp > 0);
-    }
-
-    private boolean advance() {
-        while (true) {
-            if (leaf == null)
-                return false;
-
-            while (slot < leaf.keyCount()) {
+        while (true){
+            if (leaf == null) return false;
+            while (slot < leaf.keyCount()){
                 int k = leaf.keyAt(slot);
-                if (!withinLow(k)) {
-                    slot++;
-                    continue;
-                }
-                if (!withinHigh(k)) {
-                    // high を超えたら終了
-                    return false;
-                }
+                if (!withinLow(k)){ slot++; continue; }
+                if (!withinHigh(k)) return false;
                 currentRid = leaf.ridAt(slot);
                 slot++;
                 return true;
             }
-            // 次の葉へ
             int nxt = leaf.nextLeafBlockNo();
             leaf.close();
             leaf = (nxt == -1) ? null : BTreeLeafPage.open(fm, dataFileName, indexFile, nxt);
@@ -82,16 +51,18 @@ final class BTreeRangeCursor implements RangeCursor {
         }
     }
 
-    @Override
-    public RID getDataRid() {
-        return currentRid;
+    private boolean withinHigh(int key){
+        if (high == null) return true;
+        int cmp = Integer.compare(key, high.asInt());
+        return highInc ? (cmp <= 0) : (cmp < 0);
+    }
+    private boolean withinLow(int key){
+        if (low == null) return true;
+        int cmp = Integer.compare(key, low.asInt());
+        return lowInc ? (cmp >= 0) : (cmp > 0);
     }
 
-    @Override
-    public void close() {
-        if (leaf != null) {
-            leaf.close();
-            leaf = null;
-        }
-    }
+    @Override public RID getDataRid(){ return currentRid; }
+    @Override public void close(){ if (leaf != null){ leaf.close(); leaf = null; } }
 }
+

@@ -172,4 +172,22 @@ class BTreeIndexBasicTest {
             assertFalse(idx.next());
         }
     }
+
+    @Test
+    void smoke_insert_and_read_same_leaf() throws Exception {
+        try (BTreeIndex idx = newIndex()) {
+            idx.open();
+	    // 分割しない程度の少数だけ
+	    idx.insert(SearchKey.ofInt(10), rid(1,3));
+            idx.insert(SearchKey.ofInt(10), rid(1,7));
+
+            // すぐ同じプロセスで point lookup
+            idx.beforeFirst(SearchKey.ofInt(10));
+            assertTrue(idx.next());
+            RID r = idx.getDataRid();
+            assertNotNull(r);
+        }
+    }
+
+
 }

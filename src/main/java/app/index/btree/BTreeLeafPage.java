@@ -1,83 +1,64 @@
 package app.index.btree;
 
-import app.index.RID; // ← ここを app.index に修正
+import app.index.RID;
 import app.storage.BlockId;
 import app.storage.FileMgr;
 
 final class BTreeLeafPage implements AutoCloseable {
     private final FileMgr fm;
     private final BTPage page;
-    private final String dataFileName; // RID 復元に必要（対象テーブルのデータファイル名）
+    private final String dataFileName;
 
-    BTreeLeafPage(FileMgr fm, BlockId blk, String dataFileName) {
+    BTreeLeafPage(FileMgr fm, BlockId blk, String dataFileName){
         this.fm = fm;
         this.page = new BTPage(fm, blk);
         this.dataFileName = dataFileName;
-        if (!page.isLeaf())
-            page.formatLeaf();
+        // ここで format しない（既存ページ破壊防止）
     }
 
-    BlockId block() {
-        return page.block();
-    }
+    BlockId block(){ return page.block(); }
 
-    int lowerBound(int key) {
-        return page.lowerBoundLeaf(key);
-    }
+    int lowerBound(int key){ return page.lowerBoundLeaf(key); }
+    int upperBound(int key){ return page.upperBoundLeaf(key); }
 
-    void insertAt(int slot, int key, RID rid) {
-        int blockNo = rid.block().number();
-        int ridSlot = rid.slot();
-        page.insertLeafAtRaw(slot, key, blockNo, ridSlot);
+    void insertAt(int slot, int key, RID rid){
+        page.insertLeafAtRaw(slot, key, rid.block().number(), rid.slot());
+	page.flush();
     }
 
     DirEntry splitAndPromote() throws Exception {
         int splitPos = page.keyCount() / 2;
         int rightFirstKey = page.leafKey(splitPos);
-        var rightBlk = page.splitLeaf(splitPos);
+        BlockId rightBlk = page.splitLeaf(splitPos);
         return new DirEntry(rightFirstKey, rightBlk.number());
     }
 
-    int keyAt(int slot) {
-        return page.leafKey(slot);
-    }
-
-    RID ridAt(int slot) {
+    int keyAt(int slot){ return page.leafKey(slot); }
+    RID ridAt(int slot){
         int blockNo = page.leafBlockNo(slot);
         int ridSlot = page.leafRidSlot(slot);
         return new RID(new BlockId(dataFileName, blockNo), ridSlot);
     }
 
-    int keyCount() {
-        return page.keyCount();
+    void removeAt(int slot){ 
+        page.removeLeafAt(slot);
+        page.flush();	
     }
 
-    int capacity() {
-        return (fm.blockSize() - BTreeLayouts.HEADER_SIZE) / BTreeLayouts.LEAF_SLOT_SIZE;
-    }
+    int keyCount(){ return page.keyCount(); }
 
-    boolean isFull() {
-        return keyCount() >= capacity();
+    int capacity(){
+        return (fm.blockSize() - BTreeLayouts.HEADER_SIZE)/BTreeLayouts.LEAF_SLOT_SIZE;
     }
+    boolean isFull(){ return keyCount() >= capacity(); }
 
-    int nextLeafBlockNo() {
-        return page.leafNext();
-    }
+    int nextLeafBlockNo(){ return page.next(); }
+    int prevLeafBlockNo(){ return page.prev(); }
 
-    int prevLeafBlockNo() {
-        return page.leafPrev();
-    }
-
-    static BTreeLeafPage open(FileMgr fm, String dataFileName, String idxFile, int blockNo) {
+    static BTreeLeafPage open(FileMgr fm, String dataFileName, String idxFile, int blockNo){
         return new BTreeLeafPage(fm, new BlockId(idxFile, blockNo), dataFileName);
     }
 
-    void removeAt(int slot) {
-        page.removeLeafAt(slot);
-    }
-
-    @Override
-    public void close() {
-        page.close();
-    }
+    @Override public void close(){ page.close(); }
 }
+
