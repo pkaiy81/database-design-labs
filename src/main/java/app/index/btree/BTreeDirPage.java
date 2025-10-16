@@ -7,52 +7,86 @@ final class BTreeDirPage implements AutoCloseable {
     private final FileMgr fm;
     private final BTPage page;
 
-    BTreeDirPage(FileMgr fm, BlockId blk){
+    BTreeDirPage(FileMgr fm, BlockId blk) {
         this.fm = fm;
-        this.page = new BTPage(fm, blk);
-        // ここで format しない（既存ページ破壊防止）
+        this.page = new BTPage(fm, blk); // 既存ページを開くだけ（format禁止）
     }
 
-    BlockId block(){ return page.block(); }
+    // ---- 基本アクセサ（BTreeIndex/テストから使えるよう露出） ----
+    BlockId block() {
+        return page.block();
+    }
 
-    // 検索キー以下の“最後”のスロットの child に降りる
-    BlockId findChildBlock(int searchKey){
+    int level() {
+        return page.level();
+    }
+
+    int keyCount() {
+        return page.keyCount();
+    }
+
+    int keyAt(int i) {
+        return page.dirKey(i);
+    }
+
+    int childAt(int i) {
+        return page.dirChild(i);
+    }
+
+    // ---- 子探索：最大の (key_i <= searchKey) の child を選ぶ ----
+    BlockId findChildBlock(int searchKey) {
         int n = page.keyCount();
-        if (n == 0) return new BlockId(block().filename(), 0); // 保険
-
-        int lo = 0, hi = n - 1;
-        while (lo < hi){
-            int mid = (lo + hi + 1) >>> 1;
-            if (page.dirKey(mid) <= searchKey) lo = mid; else hi = mid - 1;
+        if (n == 0) {
+            // ここでブロック0にフォールバックしていたのがバグの根源。
+            // ディレクトリページが空なのは構造不変条件違反なので、例外にします。
+            throw new IllegalStateException("Directory page has no entries: " + block());
         }
-        int child = page.dirChild(lo);
-        return new BlockId(block().filename(), child);
+        // floor(<=) を二分探索
+        int lo = 0, hi = n - 1;
+        while (lo < hi) {
+            int mid = (lo + hi + 1) >>> 1;
+            if (page.dirKey(mid) <= searchKey)
+                lo = mid;
+            else
+                hi = mid - 1;
+        }
+        int childNo = page.dirChild(lo);
+        return new BlockId(block().filename(), childNo);
     }
 
-    // 昇格エントリの挿入。満杯なら右ページ先頭キーを昇格キーとして返す
+    // ---- 昇格エントリ挿入：満杯なら split し、右ページ先頭キーを昇格して返す ----
     DirEntry insertEntry(DirEntry e) throws Exception {
+        // lower_bound: 初めて dirKey(i) >= e.sepKey となる位置
         int pos = lowerBoundDir(e.sepKey);
         page.insertDirAt(pos, e.sepKey, e.childBlk);
-	page.flush();
-
+        // 容量チェック（BTPage に isFull が無い前提なので自前計算）
         int capacity = (fm.blockSize() - BTreeLayouts.HEADER_SIZE) / BTreeLayouts.DIR_SLOT_SIZE;
-        if (page.keyCount() <= capacity) return null;
-
+        if (page.keyCount() <= capacity) {
+            page.flush(); // 即時反映
+            return null;
+        }
+        // 分割：右ページの先頭キーを昇格キーにする
         int splitPos = page.keyCount() / 2;
         int promoteKey = page.dirKey(splitPos);
-        BlockId rightBlk = page.splitDir(splitPos);
-        return new DirEntry(promoteKey, rightBlk.number());
+        BlockId right = page.splitDir(splitPos); // 右側は内部で flush 済み想定
+        page.flush(); // 左側も念のため
+        return new DirEntry(promoteKey, right.number());
     }
 
-    private int lowerBoundDir(int key){
+    private int lowerBoundDir(int key) {
         int lo = 0, hi = page.keyCount();
-        while (lo < hi){
+        while (lo < hi) {
             int mid = (lo + hi) >>> 1;
-            if (page.dirKey(mid) < key) lo = mid + 1; else hi = mid;
+            if (page.dirKey(mid) < key)
+                lo = mid + 1;
+            else
+                hi = mid;
         }
         return lo;
     }
 
-    @Override public void close(){ page.close(); }
+    @Override
+    public void close() {
+        page.close();
+    }
 }
-

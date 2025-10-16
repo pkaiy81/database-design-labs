@@ -23,9 +23,9 @@ public final class BTreeIndex implements Index {
         this.indexFile = indexFile;
         this.dataFileName = dataFileName;
 
-        if (fm.length(indexFile) == 0){
+        if (fm.length(indexFile) == 0) {
             root = fm.append(indexFile);
-            try (BTPage p = new BTPage(fm, root)){
+            try (BTPage p = new BTPage(fm, root)) {
                 p.formatLeaf();
                 p.flush();
             }
@@ -34,42 +34,47 @@ public final class BTreeIndex implements Index {
         }
     }
 
-    @Override public void open(){}
+    @Override
+    public void open() {
+    }
 
     @Override
-    public void beforeFirst(SearchKey key){
+    public void beforeFirst(SearchKey key) {
         closeLeafIfAny();
         BlockId child = descendToLeaf(key.asInt());
         leaf = new BTreeLeafPage(fm, child, dataFileName);
         slot = leaf.lowerBound(key.asInt());
         currKey = key.asInt();
-	bufferedRid = null;
+        bufferedRid = null;
     }
 
     @Override
-    public boolean next(){
-        if (leaf == null) return false;
-	// 等値キー（currKey）の範囲内で1つ前進しつつバッファに積む
-        while (slot < leaf.keyCount()){
+    public boolean next() {
+        if (leaf == null)
+            return false;
+        // 等値キー（currKey）の範囲内で1つ前進しつつバッファに積む
+        while (slot < leaf.keyCount()) {
             int k = leaf.keyAt(slot);
-            if (k != currKey) return false; // 同一キー領域を抜け
-	    bufferedRid = leaf.ridAt(slot);
-            slot++;                          // ここで1つ前進しておく
+            if (k != currKey)
+                return false; // 同一キー領域を抜け
+            bufferedRid = leaf.ridAt(slot);
+            slot++; // ここで1つ前進しておく
             return true;
         }
         return false;
     }
 
     @Override
-    public RID getDataRid(){
-	return bufferedRid;
+    public RID getDataRid() {
+        return bufferedRid;
     }
 
     @Override
-    public void insert(SearchKey key, RID rid){
+    public void insert(SearchKey key, RID rid) {
         try {
             DirEntry up = insertRec(root, key.asInt(), rid);
-            if (up == null) return;
+            if (up == null)
+                return;
 
             try (BTPage rp = new BTPage(fm, root)) {
                 if (rp.isLeaf()) {
@@ -85,7 +90,7 @@ public final class BTreeIndex implements Index {
                     }
                 }
             }
-        } catch (Exception e){
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
@@ -101,82 +106,91 @@ public final class BTreeIndex implements Index {
             // 2) 葉だけを開く（このスコープで唯一の開き先）
             try (BTreeLeafPage lf = new BTreeLeafPage(fm, blk, dataFileName)) {
                 int pos = lf.upperBound(key);
-                lf.insertAt(pos, key, rid);   // insertAt 内で flush 済み
-                if (!lf.isFull()) return null;
-                return lf.splitAndPromote();  // splitLeaf 内でも flush 済み
+                lf.insertAt(pos, key, rid); // insertAt 内で flush 済み
+                if (!lf.isFull())
+                    return null;
+                return lf.splitAndPromote(); // splitLeaf 内でも flush 済み
             }
         } else {
             // 3) 内部だけを開く（このスコープで唯一の開き先）
             try (BTreeDirPage dir = new BTreeDirPage(fm, blk)) {
                 BlockId child = dir.findChildBlock(key);
                 DirEntry childUp = insertRec(child, key, rid);
-                if (childUp == null) return null;
+                if (childUp == null)
+                    return null;
                 return dir.insertEntry(childUp); // insertEntry でも flush 済み
             }
         }
     }
 
-
+    // ルートが葉だった場合の成長：新規ルート(dir, level=1)を作り、[-∞→旧葉], [up] を挿入
     private void growNewRootFromLeaf(DirEntry up, BlockId leftLeaf) throws Exception {
         BlockId newRoot = fm.append(indexFile);
         try (BTPage p = new BTPage(fm, newRoot)) {
+            // 単一のBTPageで完結させる（他のインスタンスで同ブロックを開かない）
             p.formatDir(1);
-            p.setKeyCount(0);
-            try (BTreeDirPage dir = new BTreeDirPage(fm, newRoot)) {
-                dir.insertEntry(new DirEntry(Integer.MIN_VALUE, leftLeaf.number()));
-                dir.insertEntry(up);
-            }
-	    p.flush();
+            // [-∞ -> 旧leaf], [up.sepKey -> up.childBlk] の2エントリを直接設定
+            p.setDirSlot(0, Integer.MIN_VALUE, leftLeaf.number());
+            p.setDirSlot(1, up.sepKey, up.childBlk);
+            p.setKeyCount(2);
+            p.flush();
         }
         this.root = newRoot;
     }
 
+    // ルートが内部ノードだった場合の成長：新規ルート(dir, level=2)を作り、[-∞→旧root], [up] を挿入
     private void growNewRootFromDir(DirEntry up, BlockId oldRoot) throws Exception {
         BlockId newRoot = fm.append(indexFile);
         try (BTPage p = new BTPage(fm, newRoot)) {
+            // 単一のBTPageで完結させる
             p.formatDir(2);
-            p.setKeyCount(0);
-            try (BTreeDirPage dir = new BTreeDirPage(fm, newRoot)) {
-                dir.insertEntry(new DirEntry(Integer.MIN_VALUE, oldRoot.number()));
-                dir.insertEntry(up);
-            }
-	    p.flush();
+            p.setDirSlot(0, Integer.MIN_VALUE, oldRoot.number());
+            p.setDirSlot(1, up.sepKey, up.childBlk);
+            p.setKeyCount(2);
+            p.flush();
         }
         this.root = newRoot;
     }
 
-    private BlockId descendToLeaf(int key){
-        BlockId child = root;
-        while (true){
-            try (BTPage p = new BTPage(fm, child)) {
-                if (p.isLeaf()) return child;
-            }
-            try (BTreeDirPage dir = new BTreeDirPage(fm, child)){
-                child = dir.findChildBlock(key);
-            } catch (Exception e){ throw new RuntimeException(e); }
-        }
-    }
-
+    // delete 後にカーソルを無効化（= 直後の next() は false を返すようにする） ---
     @Override
-    public void delete(SearchKey key, RID rid){
+    public void delete(SearchKey key, RID rid) {
         BlockId child = descendToLeaf(key.asInt());
-        try (BTreeLeafPage lf = new BTreeLeafPage(fm, child, dataFileName)){
+        try (BTreeLeafPage lf = new BTreeLeafPage(fm, child, dataFileName)) {
             int pos = lf.lowerBound(key.asInt());
-            while (pos < lf.keyCount() && lf.keyAt(pos) == key.asInt()){
+            while (pos < lf.keyCount() && lf.keyAt(pos) == key.asInt()) {
                 RID r = lf.ridAt(pos);
-                if (r.equals(rid)){
+                if (r.equals(rid)) {
                     lf.removeAt(pos);
+                    // ここで内部カーソルを無効化（テスト: delete直後の next() は false になる）
+                    closeLeafIfAny();
+                    slot = -1;
                     return;
                 }
                 pos++;
             }
-        } catch (Exception e){
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
 
+    private BlockId descendToLeaf(int key) {
+        BlockId child = root;
+        while (true) {
+            try (BTPage p = new BTPage(fm, child)) {
+                if (p.isLeaf())
+                    return child;
+            }
+            try (BTreeDirPage dir = new BTreeDirPage(fm, child)) {
+                child = dir.findChildBlock(key);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
     @Override
-    public RangeCursor range(SearchKey low, boolean lowInc, SearchKey high, boolean highInc){
+    public RangeCursor range(SearchKey low, boolean lowInc, SearchKey high, boolean highInc) {
         int startKey = (low != null) ? low.asInt() : Integer.MIN_VALUE;
         BlockId child = descendToLeaf(startKey);
         BTreeLeafPage startLeaf = new BTreeLeafPage(fm, child, dataFileName);
@@ -184,10 +198,15 @@ public final class BTreeIndex implements Index {
         return new BTreeRangeCursor(fm, indexFile, dataFileName, low, lowInc, high, highInc, startLeaf, startSlot);
     }
 
-    private void closeLeafIfAny(){
-        if (leaf != null){ leaf.close(); leaf = null; }
+    private void closeLeafIfAny() {
+        if (leaf != null) {
+            leaf.close();
+            leaf = null;
+        }
     }
 
-    @Override public void close(){ closeLeafIfAny(); }
+    @Override
+    public void close() {
+        closeLeafIfAny();
+    }
 }
-

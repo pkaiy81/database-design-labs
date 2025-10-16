@@ -35,22 +35,29 @@ class BTreeIndexDebugTest {
             fm.append(dataFile); // #1
         }
 
-        @Override public void close() throws Exception {
+        @Override
+        public void close() throws Exception {
             try (var s = Files.walk(dir)) {
-                s.sorted((a,b)->b.compareTo(a)).forEach(p -> {
-                    try { Files.deleteIfExists(p); } catch (IOException ignored) {}
+                s.sorted((a, b) -> b.compareTo(a)).forEach(p -> {
+                    try {
+                        Files.deleteIfExists(p);
+                    } catch (IOException ignored) {
+                    }
                 });
             }
         }
     }
 
-    private RID rid(String dataFile, int blockNo, int slot){
+    private RID rid(String dataFile, int blockNo, int slot) {
         return new RID(new BlockId(dataFile, blockNo), slot);
     }
 
     // --- ダンプ系ユーティリティ（同一パッケージなので BTPage へ直接アクセス可能） ---
 
-    /** ルート BlockId を返す（BTreeIndex のフィールド root は private なので、descendToLeaf(任意のキー) で root の型を判断しつつ辿る） */
+    /**
+     * ルート BlockId を返す（BTreeIndex のフィールド root は private なので、descendToLeaf(任意のキー) で
+     * root の型を判断しつつ辿る）
+     */
     private BlockId getRoot(FileMgr fm, String indexFile) throws Exception {
         // ルートは常に block#0 とは限らない実装もあるが、今回の実装では 0 または append によるブロック。
         // ここでは単純に 0 を「候補」として返す。正確に知りたい場合は BTreeIndex の private フィールド root を反射で見る。
@@ -74,12 +81,12 @@ class BTreeIndexDebugTest {
                     + " prev=" + p.prev()
                     + " next=" + p.next());
             if (p.isLeaf()) {
-                for (int i=0;i<p.keyCount();i++){
+                for (int i = 0; i < p.keyCount(); i++) {
                     System.out.println("  [L] i=" + i + " key=" + p.leafKey(i)
                             + " rid=(" + p.leafBlockNo(i) + "," + p.leafRidSlot(i) + ")");
                 }
             } else {
-                for (int i=0;i<p.keyCount();i++){
+                for (int i = 0; i < p.keyCount(); i++) {
                     System.out.println("  [D] i=" + i + " minKey=" + p.dirKey(i)
                             + " child=" + p.dirChild(i));
                 }
@@ -93,7 +100,8 @@ class BTreeIndexDebugTest {
         // 内部なら最左子を辿る
         while (true) {
             try (BTPage p = new BTPage(fm, cur)) {
-                if (p.isLeaf()) break;
+                if (p.isLeaf())
+                    break;
                 int child = p.dirChild(0);
                 cur = new BlockId(indexFile, child);
             }
@@ -133,7 +141,7 @@ class BTreeIndexDebugTest {
                 // 小規模挿入（重複含む）
                 idx.insert(SearchKey.ofInt(10), rid(dataFile, 1, 3));
                 idx.insert(SearchKey.ofInt(10), rid(dataFile, 1, 7));
-                idx.insert(SearchKey.ofInt(5),  rid(dataFile, 0, 1));
+                idx.insert(SearchKey.ofInt(5), rid(dataFile, 0, 1));
                 idx.insert(SearchKey.ofInt(20), rid(dataFile, 0, 2));
                 idx.insert(SearchKey.ofInt(15), rid(dataFile, 1, 9));
             }
@@ -191,9 +199,7 @@ class BTreeIndexDebugTest {
             try (BTreeIndex idx = new BTreeIndex(fm, indexFile, dataFile)) {
                 idx.open();
                 // 連番を挿入して分割を誘発
-                IntStream.range(0, 2000).forEach(k ->
-                        idx.insert(SearchKey.ofInt(k), rid(dataFile, 1, k % 1000))
-                );
+                IntStream.range(0, 2000).forEach(k -> idx.insert(SearchKey.ofInt(k), rid(dataFile, 1, k % 1000)));
             }
             System.out.println("=== dump all leaves after bulk inserts ===");
             dumpAllLeaves(fm, indexFile);
@@ -205,4 +211,3 @@ class BTreeIndexDebugTest {
         }
     }
 }
-
