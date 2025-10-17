@@ -63,23 +63,23 @@ public class SimpleIJ {
                 continue;
             }
 
-	    if (sql.equalsIgnoreCase(".tables")) {
+            // .tables / .indexes は即時処理（バッファ積まずに処理して continue）
+            String trimmed = line; // ← ここは line を使う
+            if (trimmed.equalsIgnoreCase(".tables")) {
                 System.out.println("Tables:");
-                for (String t : mdm.listTableNames()) {
+                for (String t : mdm.listTableNames())
                     System.out.println("  " + t);
-                }
+                continue;
+            }
+            if (trimmed.equalsIgnoreCase(".indexes")) {
+                System.out.println("Indexes:");
+                for (String s : mdm.listIndexesFormatted())
+                    System.out.println("  " + s);
                 continue;
             }
 
-	    if (sql.equalsIgnoreCase(".indexes")) {
-	        System.out.println("Indexes:");
-		for (var info : mdm.listIndexes()) {
-	            System.out.println("  " + info.indexName + " ON " + info.tableName + "(" + info.colName + ")");
-		}
-		continue;
-	    }
-
-            // セミコロン終端 or 1行SQL
+            // セミコロン終端
+            // SQL 組み立て
             buf.append(line);
             if (line.endsWith(";")) {
                 String sql = buf.toString();
@@ -91,9 +91,9 @@ public class SimpleIJ {
                 // 行継続にしたい場合はセミコロンを使う
                 // exec(buf.toString());
                 // buf.setLength(0);
-		// セミコロンがない場合は、次の行を待つ
-		buf.append(" "); // スペースを入れて次の行と連結（任意）
-		// 実行しない（ユーザーが ; を入力するまで継続）
+                // セミコロンがない場合は、次の行を待つ
+                buf.append(" "); // スペースを入れて次の行と連結（任意）
+                // 実行しない（ユーザーが ; を入力するまで継続）
             }
         }
     }
@@ -109,7 +109,7 @@ public class SimpleIJ {
                           :demo          Create demo tables and seed data
                           :plan on/off   Toggle [PLAN] logs printed by operators
                         SQL:
-                          - Enter a SELECT statement (1 line or end with ';')
+                          - Enter a SELECT statement (end with ';')
                           - Supports WHERE(=), JOIN ... ON, ORDER BY, LIMIT, DISTINCT, GROUP BY, HAVING
                         """);
                 return true;
@@ -143,17 +143,18 @@ public class SimpleIJ {
             return;
         System.out.println("SQL(Debug)> " + sql);
 
-	String head = sql.split("\\s+", 3)[0].toUpperCase(Locale.ROOT);
-	if ("CREATE".equals(head)) {
-	    try {
-		Ast.CreateIndexStmt ci = new Parser(sql).parseCreateIndex();
-		runCreateIndex(ci); // 下のメソッドで実体処理
-		System.out.println("Index created: " + ci.indexName + " ON " + ci.tableName + "(" + ci.columnName + ")");
-	    } catch (Exception e) {
-		System.out.println("Exec ERROR: " + e.getMessage());
-	    }
-	    return;
-	}
+        String head = sql.split("\\s+", 3)[0].toUpperCase(Locale.ROOT);
+        if ("CREATE".equals(head)) {
+            try {
+                Ast.CreateIndexStmt ci = new Parser(sql).parseCreateIndex();
+                runCreateIndex(ci); // 下のメソッドで実体処理
+                System.out
+                        .println("Index created: " + ci.indexName + " ON " + ci.tableName + "(" + ci.columnName + ")");
+            } catch (Exception e) {
+                System.out.println("Exec ERROR: " + e.getMessage());
+            }
+            return;
+        }
 
         Ast.SelectStmt ast;
         try {
@@ -420,13 +421,12 @@ public class SimpleIJ {
     private void runCreateIndex(Ast.CreateIndexStmt ci) throws Exception {
         // 1) メタデータ登録（idxcat）
         mdm.createIndex(ci.indexName, ci.tableName, ci.columnName);
-    
+
         // 2) 物理ファイルの初期化
-	try (app.index.btree.BTreeIndex idx =
-             new app.index.btree.BTreeIndex(
-                 fm,
-                 /* index file */ ci.indexName,
-                 /* data file  */ ci.tableName + ".tbl")) {
+        try (app.index.btree.BTreeIndex idx = new app.index.btree.BTreeIndex(
+                fm,
+                /* index file */ ci.indexName,
+                /* data file */ ci.tableName + ".tbl")) {
             idx.open();
         }
     }

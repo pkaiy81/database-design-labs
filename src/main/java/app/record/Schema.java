@@ -31,4 +31,15 @@ public final class Schema {
             this.maxChars = m;
         }
     }
+
+    public boolean hasField(String c) {
+        return fields.containsKey(c);
+    }
+
+    public FieldType fieldType(String c) {
+        FieldDef def = fields.get(c);
+        if (def == null)
+            throw new IllegalArgumentException("Field not found: " + c);
+        return def.type;
+    }
 }

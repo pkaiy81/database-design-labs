@@ -7,5 +7,6 @@ public enum TokenType {
     GROUP, HAVING, COUNT, SUM, AVG, MIN, MAX,
     ORDER, BY, LIMIT, ASC, DESC,
     CREATE, INDEX,
+    USING, BTREE,
     EOF
 }

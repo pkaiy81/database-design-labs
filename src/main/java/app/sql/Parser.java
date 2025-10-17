@@ -15,22 +15,37 @@ public final class Parser {
     public Ast.CreateIndexStmt parseCreateIndex() {
         expect(TokenType.CREATE);
         expect(TokenType.INDEX);
-        String idx = parseIdentQualified();      // index 名
+
+        String idx = parseIdentQualified(); // index 名（スキーマ付きでも可）
+
         expect(TokenType.ON);
-        String tbl = parseIdentQualified();      // テーブル名
+
+        // ← ここがポイント：テーブル名はまず単体 IDENT として読む
+        String tbl = parseIdent(); // parseIdentQualified() ではなく、単体IDENTを読む想定
+
         String col;
-        if (lx.type() == TokenType.LPAREN) {     // CREATE INDEX idx ON t(c) / t.c 両対応に
+        if (lx.type() == TokenType.LPAREN) {
+            // CREATE INDEX idx ON t(c)
             lx.next();
-            col = parseIdentQualified();
+            col = parseIdent();
             expect(TokenType.RPAREN);
+        } else if (lx.type() == TokenType.DOT) {
+            // CREATE INDEX idx ON t.c
+            lx.next(); // consume '.'
+            col = parseIdent(); // 単体IDENTで列名を読む
         } else {
-            expect(TokenType.DOT);               // t.c 形式の簡易パース（好みで）
-            col = parseIdentQualified();
+            throw new ParseException("expected '(' or '.' after table name");
         }
+
+        // 任意: USING BTREE を食べる（TokenType に USING/BTREE を追加済み前提）
+        if (lx.type() == TokenType.USING) {
+            lx.next();
+            expect(TokenType.BTREE);
+        }
+
         expect(TokenType.EOF);
         return new Ast.CreateIndexStmt(idx, tbl, col);
     }
-
 
     public Ast.SelectStmt parseSelect() {
         expect(SELECT);
@@ -229,6 +244,14 @@ public final class Parser {
             lx.next();
             return a + "." + b;
         }
+        return a;
+    }
+
+    private String parseIdent() {
+        if (lx.type() != IDENT)
+            throw err("identifier");
+        String a = lx.text();
+        lx.next();
         return a;
     }
 

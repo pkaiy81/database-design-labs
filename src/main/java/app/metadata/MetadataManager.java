@@ -4,6 +4,7 @@ import app.record.*;
 import app.storage.FileMgr;
 
 import java.util.LinkedHashMap;
+
 import java.util.Map;
 
 /**
@@ -48,22 +49,23 @@ public final class MetadataManager {
                 .addInt("offset");
         this.fldcatLayout = new Layout(f);
 
-	Schema i = new Schema()
+        Schema i = new Schema()
                 .addString("iname", 64)
                 .addString("tname", 64)
                 .addString("fname", 64);
-	this.idxcatLayout = new Layout(i);
+        this.idxcatLayout = new Layout(i);
 
         this.tblcat = new TableFile(fm, "tblcat.tbl", tblcatLayout);
         this.fldcat = new TableFile(fm, "fldcat.tbl", fldcatLayout);
-	this.idxcat = new TableFile(fm, "idxcat.tbl", idxcatLayout);
+        this.idxcat = new TableFile(fm, "idxcat.tbl", idxcatLayout);
 
         // 初回起動時の空ページ確保（ファイルが0ブロックなら1ブロック作る）
         if (tblcat.size() == 0)
             tblcat.appendFormatted();
         if (fldcat.size() == 0)
             fldcat.appendFormatted();
-	if (idxcat.size() == 0) idxcat.appendFormatted();
+        if (idxcat.size() == 0)
+            idxcat.appendFormatted();
     }
 
     /** ユーザー定義テーブルの作成（カタログにレコード追加） */
@@ -153,57 +155,88 @@ public final class MetadataManager {
         // Layout は新規計算（offset は一致する想定）
         return new Layout(schema);
     }
-    
+
     public void createIndex(String iname, String tname, String fname) {
-	try (TableScan s = new TableScan(fm, idxcat)) {
-	    s.beforeFirst();
+        try (TableScan s = new TableScan(fm, idxcat)) {
+            s.beforeFirst();
             while (s.next()) {
                 if (iname.equals(s.getString("iname"))) {
                     throw new IllegalArgumentException("Index already exists: " + iname);
                 }
             }
-	    s.insert();
-	    s.setString("iname", iname);
-	    s.setString("tname", tname);
-	    s.setString("fname", fname);
+            s.insert();
+            s.setString("iname", iname);
+            s.setString("tname", tname);
+            s.setString("fname", fname);
         }
     }
 
     public java.util.List<String> getIndexesOn(String tname, String fname) {
         java.util.ArrayList<String> list = new java.util.ArrayList<>();
-	try (TableScan s = new TableScan(fm, idxcat)) {
-	    s.beforeFirst();
-	    while (s.next()) {
-	        if (tname.equals(s.getString("tname")) && fname.equals(s.getString("fname")))
-		    list.add(s.getString("iname"));
-	    }
+        try (TableScan s = new TableScan(fm, idxcat)) {
+            s.beforeFirst();
+            while (s.next()) {
+                if (tname.equals(s.getString("tname")) && fname.equals(s.getString("fname")))
+                    list.add(s.getString("iname"));
+            }
         }
         return list;
     }
 
-    public List<String> listTableNames() {
-	List<String> list = new ArrayList<>();
-	try (TableScan s = new TableScan(fm, tblcat)) {
-	    s.beforeFirst();
-	    while (s.next()) list.add(s.getString("tname"));
-	}
-	return list;
+    private String resolveIdxCol(Schema schema, String... pref) {
+        for (String c : pref)
+            if (schema.hasField(c) && schema.fieldType(c) == FieldType.STRING)
+                return c;
+        for (String f : schema.fields().keySet())
+            if (schema.fieldType(f) == FieldType.STRING)
+                return f;
+        throw new IllegalStateException("idxcat has no suitable STRING column");
     }
 
-    public List<IndexInfo> listIndexes() {
-	List<IndexInfo> list = new ArrayList<>();
-	try (TableScan s = new TableScan(fm, idxcat)) {
-	    s.beforeFirst();
-	    while (s.next()) {
-		list.add(new IndexInfo(
-			s.getString("iname"),
-			s.getString("tname"),
-			s.getString("fname"),
-			null, null, "BTREE"
-		    ));
-	    }
-	}
-	return list;
+    public java.util.List<String> listIndexesFormatted() {
+        java.util.ArrayList<String> list = new java.util.ArrayList<>();
+        try (TableScan s = new TableScan(fm, idxcat)) {
+            s.beforeFirst();
+            Schema sc = idxcatLayout.schema();
+            String inCol = resolveIdxCol(sc, "iname", "index", "name");
+            String tnCol = resolveIdxCol(sc, "tname", "table", "tbl", "tblname");
+            String fnCol = resolveIdxCol(sc, "fname", "column", "col", "field", "fldname");
+            while (s.next()) {
+                String in = s.getString(inCol);
+                String tn = s.getString(tnCol);
+                String fn = s.getString(fnCol);
+                list.add(in + " ON " + tn + "(" + fn + ")");
+            }
+        }
+        return list;
+    }
+
+    // スキーマから最適な「テーブル名」列を解決するヘルパ
+    private String resolveTableNameColumn(Schema schema) {
+        // よくある候補を優先
+        String[] candidates = { "tname", "name", "table", "tbl", "tblname" };
+        for (String c : candidates) {
+            if (schema.hasField(c) && schema.fieldType(c) == FieldType.STRING)
+                return c;
+        }
+        // フォールバック: 最初の STRING 列
+        for (String f : schema.fields().keySet()) {
+            if (schema.fieldType(f) == FieldType.STRING)
+                return f;
+        }
+        throw new IllegalStateException("tblcat has no suitable STRING column for table name");
+    }
+
+    public java.util.List<String> listTableNames() {
+        java.util.ArrayList<String> list = new java.util.ArrayList<>();
+        try (TableScan s = new TableScan(fm, tblcat)) {
+            s.beforeFirst();
+            String nameCol = resolveTableNameColumn(tblcatLayout.schema());
+            while (s.next()) {
+                list.add(s.getString(nameCol));
+            }
+        }
+        return list;
     }
 
 }

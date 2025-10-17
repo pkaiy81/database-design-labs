@@ -41,6 +41,7 @@ public final class Ast {
         public final String indexName;
         public final String tableName;
         public final String columnName;
+
         public CreateIndexStmt(String in, String tn, String cn) {
             this.indexName = in;
             this.tableName = tn;
