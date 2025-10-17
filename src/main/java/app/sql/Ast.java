@@ -37,6 +37,17 @@ public final class Ast {
         }
     }
 
+    public static final class CreateIndexStmt {
+        public final String indexName;
+        public final String tableName;
+        public final String columnName;
+        public CreateIndexStmt(String in, String tn, String cn) {
+            this.indexName = in;
+            this.tableName = tn;
+            this.columnName = cn;
+        }
+    }
+
     public static final class SelectStmt {
         public final boolean distinct;
         public final List<SelectItem> projections;

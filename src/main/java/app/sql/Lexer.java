@@ -182,6 +182,12 @@ public final class Lexer {
             case "DESC":
                 type = TokenType.DESC;
                 break;
+	    case "CREATE":
+		type = TokenType.CREATE;
+		break;
+	    case "INDEX":
+		type = TokenType.INDEX;
+		break;
             default:
                 type = TokenType.IDENT;
                 raw = raw;

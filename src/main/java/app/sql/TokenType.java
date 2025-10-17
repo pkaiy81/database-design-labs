@@ -6,5 +6,6 @@ public enum TokenType {
     SELECT, DISTINCT, FROM, WHERE, JOIN, ON, AND,
     GROUP, HAVING, COUNT, SUM, AVG, MIN, MAX,
     ORDER, BY, LIMIT, ASC, DESC,
+    CREATE, INDEX,
     EOF
 }

@@ -63,6 +63,22 @@ public class SimpleIJ {
                 continue;
             }
 
+	    if (sql.equalsIgnoreCase(".tables")) {
+                System.out.println("Tables:");
+                for (String t : mdm.listTableNames()) {
+                    System.out.println("  " + t);
+                }
+                continue;
+            }
+
+	    if (sql.equalsIgnoreCase(".indexes")) {
+	        System.out.println("Indexes:");
+		for (var info : mdm.listIndexes()) {
+	            System.out.println("  " + info.indexName + " ON " + info.tableName + "(" + info.colName + ")");
+		}
+		continue;
+	    }
+
             // セミコロン終端 or 1行SQL
             buf.append(line);
             if (line.endsWith(";")) {
@@ -125,7 +141,19 @@ public class SimpleIJ {
         sql = sql.trim();
         if (sql.isEmpty())
             return;
-        System.out.println("SQL> " + sql);
+        System.out.println("SQL(Debug)> " + sql);
+
+	String head = sql.split("\\s+", 3)[0].toUpperCase(Locale.ROOT);
+	if ("CREATE".equals(head)) {
+	    try {
+		Ast.CreateIndexStmt ci = new Parser(sql).parseCreateIndex();
+		runCreateIndex(ci); // 下のメソッドで実体処理
+		System.out.println("Index created: " + ci.indexName + " ON " + ci.tableName + "(" + ci.columnName + ")");
+	    } catch (Exception e) {
+		System.out.println("Exec ERROR: " + e.getMessage());
+	    }
+	    return;
+	}
 
         Ast.SelectStmt ast;
         try {
@@ -386,6 +414,20 @@ public class SimpleIJ {
 
         private static String safe(List<String> r, int i) {
             return (i < r.size() && r.get(i) != null) ? r.get(i) : "";
+        }
+    }
+
+    private void runCreateIndex(Ast.CreateIndexStmt ci) throws Exception {
+        // 1) メタデータ登録（idxcat）
+        mdm.createIndex(ci.indexName, ci.tableName, ci.columnName);
+    
+        // 2) 物理ファイルの初期化
+	try (app.index.btree.BTreeIndex idx =
+             new app.index.btree.BTreeIndex(
+                 fm,
+                 /* index file */ ci.indexName,
+                 /* data file  */ ci.tableName + ".tbl")) {
+            idx.open();
         }
     }
 }

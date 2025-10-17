@@ -12,6 +12,26 @@ public final class Parser {
         this.lx = new Lexer(sql);
     }
 
+    public Ast.CreateIndexStmt parseCreateIndex() {
+        expect(TokenType.CREATE);
+        expect(TokenType.INDEX);
+        String idx = parseIdentQualified();      // index 名
+        expect(TokenType.ON);
+        String tbl = parseIdentQualified();      // テーブル名
+        String col;
+        if (lx.type() == TokenType.LPAREN) {     // CREATE INDEX idx ON t(c) / t.c 両対応に
+            lx.next();
+            col = parseIdentQualified();
+            expect(TokenType.RPAREN);
+        } else {
+            expect(TokenType.DOT);               // t.c 形式の簡易パース（好みで）
+            col = parseIdentQualified();
+        }
+        expect(TokenType.EOF);
+        return new Ast.CreateIndexStmt(idx, tbl, col);
+    }
+
+
     public Ast.SelectStmt parseSelect() {
         expect(SELECT);
 
