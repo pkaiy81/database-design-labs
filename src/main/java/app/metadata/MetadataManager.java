@@ -6,6 +6,7 @@ import app.storage.FileMgr;
 import java.util.LinkedHashMap;
 
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * システムカタログ管理:
@@ -171,6 +172,23 @@ public final class MetadataManager {
         }
     }
 
+    /**
+     * 途中失敗時のロールバック用：createIndex で登録した内容を取り消す.
+     * indexName をキーに idxcat から当該エントリを削除する.
+     */
+    public void dropIndex(String indexName) {
+        idxcatLayout.schema();
+        try (TableScan s = new TableScan(fm, idxcat)) {
+            s.beforeFirst();
+            while (s.next()) {
+                if (indexName.equals(s.getString("iname"))) {
+                    s.delete();
+                    break;
+                }
+            }
+        }
+    }
+
     public java.util.List<String> getIndexesOn(String tname, String fname) {
         java.util.ArrayList<String> list = new java.util.ArrayList<>();
         try (TableScan s = new TableScan(fm, idxcat)) {
@@ -237,6 +255,25 @@ public final class MetadataManager {
             }
         }
         return list;
+    }
+
+    // (table, column) に紐づく index 名を1つ返す（複数ある場合は最初の1つ）
+    public Optional<String> findIndexOn(String table, String column) {
+        try (TableScan s = new TableScan(fm, idxcat)) {
+            s.beforeFirst();
+            // 列名解決ヘルパ（前回追加）を使うのが安全
+            var sc = idxcatLayout.schema();
+            String inCol = resolveIdxCol(sc, "iname", "index", "name");
+            String tnCol = resolveIdxCol(sc, "tname", "table", "tbl", "tblname");
+            String fnCol = resolveIdxCol(sc, "fname", "column", "col", "field", "fldname");
+
+            while (s.next()) {
+                if (table.equals(s.getString(tnCol)) && column.equals(s.getString(fnCol))) {
+                    return Optional.of(s.getString(inCol));
+                }
+            }
+        }
+        return Optional.empty();
     }
 
 }

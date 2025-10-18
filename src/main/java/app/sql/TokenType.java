@@ -8,5 +8,6 @@ public enum TokenType {
     ORDER, BY, LIMIT, ASC, DESC,
     CREATE, INDEX,
     USING, BTREE,
+    BETWEEN, NOT,
     EOF
 }

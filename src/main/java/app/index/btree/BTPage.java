@@ -140,6 +140,15 @@ class BTPage implements Closeable {
         setKeyCount(n + 1);
     }
 
+    // --- remove dir (左シフト→count--)
+    void removeDirAt(int slot) {
+        int n = keyCount();
+        for (int i = slot + 1; i < n; i++) {
+            setDirSlot(i - 1, dirKey(i), dirChild(i));
+        }
+        setKeyCount(n - 1);
+    }
+
     void insertLeafAtRaw(int slot, int key, int blockNo, int ridSlot) {
         int n = keyCount();
         for (int i = n; i > slot; i--) {

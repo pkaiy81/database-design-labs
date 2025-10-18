@@ -1,5 +1,7 @@
 package app.cli;
 
+import app.index.RID;
+import app.index.SearchKey;
 import app.metadata.MetadataManager;
 import app.query.Scan;
 import app.record.Layout;
@@ -19,7 +21,11 @@ import java.util.stream.Collectors;
 
 /**
  * SimpleIJ っぽい最小CLI:
- * - 1行またはセミコロン区切りでSQLを受け付けて実行（SELECTのみ）
+ * - 1行またはセミコロン区切りでSQLを受け付けて実行
+ * - CREATE INDEX 文をサポート
+ * - SELECT 文をサポート（WHERE(=), JOIN ... ON, ORDER BY, LIMIT, DISTINCT, GROUP BY,
+ * HAVING）
+ * - .tables / .indexes メタコマンド
  * - メタコマンド(:help, :exit, :reset, :demo, :plan)
  * - 結果をASCIIテーブルで表示
  */
@@ -64,7 +70,7 @@ public class SimpleIJ {
             }
 
             // .tables / .indexes は即時処理（バッファ積まずに処理して continue）
-            String trimmed = line; // ← ここは line を使う
+            String trimmed = line;
             if (trimmed.equalsIgnoreCase(".tables")) {
                 System.out.println("Tables:");
                 for (String t : mdm.listTableNames())
@@ -103,14 +109,17 @@ public class SimpleIJ {
             case ":help":
                 System.out.println("""
                         Commands:
-                          :help          Show this help
-                          :exit          Exit
-                          :reset         Remove ./data directory (ALL DATA LOST)
-                          :demo          Create demo tables and seed data
-                          :plan on/off   Toggle [PLAN] logs printed by operators
+                            :help          Show this help
+                            :exit          Exit
+                            :reset         Remove ./data directory (ALL DATA LOST)
+                            :demo          Create demo tables and seed data
+                            :plan on/off   Toggle [PLAN] logs printed by operators
+                        Meta commands:
+                            .tables       List tables
+                            .indexes      List indexes
                         SQL:
-                          - Enter a SELECT statement (end with ';')
-                          - Supports WHERE(=), JOIN ... ON, ORDER BY, LIMIT, DISTINCT, GROUP BY, HAVING
+                            - Enter a SELECT statement (end with ';')
+                            - Supports WHERE(=), JOIN ... ON, ORDER BY, LIMIT, DISTINCT, GROUP BY, HAVING
                         """);
                 return true;
             case ":exit":
@@ -120,6 +129,7 @@ public class SimpleIJ {
                 System.out.println("data directory removed.");
                 return true;
             case ":demo":
+                Util.ensureDataDir();
                 createDemoData();
                 System.out.println("demo data created: tables 'names', 'scores'");
                 return true;
@@ -363,6 +373,17 @@ public class SimpleIJ {
             } catch (Exception ignore) {
             }
         }
+
+        // create dir if ./data not exists
+        static void ensureDataDir() {
+            try {
+                java.nio.file.Path p = java.nio.file.Path.of("./data");
+                if (!java.nio.file.Files.exists(p)) {
+                    java.nio.file.Files.createDirectories(p);
+                }
+            } catch (Exception ignore) {
+            }
+        }
     }
 
     /** 超簡易テーブルプリンタ（等幅） */
@@ -419,15 +440,52 @@ public class SimpleIJ {
     }
 
     private void runCreateIndex(Ast.CreateIndexStmt ci) throws Exception {
-        // 1) メタデータ登録（idxcat）
-        mdm.createIndex(ci.indexName, ci.tableName, ci.columnName);
+        boolean metaRegistered = false;
+        final String idxFile = ci.indexName + ".idx"; // BTreeIndex が使う既定の物理名に合わせる
+        app.index.btree.BTreeIndex idx = null;
+        try {
+            // 1) 先にメタ登録（重複チェック） 以降の失敗時は roll back
+            mdm.createIndex(ci.indexName, ci.tableName, ci.columnName);
+            metaRegistered = true;
 
-        // 2) 物理ファイルの初期化
-        try (app.index.btree.BTreeIndex idx = new app.index.btree.BTreeIndex(
-                fm,
-                /* index file */ ci.indexName,
-                /* data file */ ci.tableName + ".tbl")) {
+            // 2) 物理インデックスを開いてビルド
+            idx = new app.index.btree.BTreeIndex(fm, ci.indexName, ci.tableName + ".tbl");
             idx.open();
+
+            // 3) 全件スキャンして (key, RID) を投入
+            TableFile tf = new TableFile(fm, ci.tableName + ".tbl", mdm.getLayout(ci.tableName));
+            try (TableScan ts = new TableScan(fm, tf)) {
+                ts.beforeFirst();
+                while (ts.next()) {
+                    SearchKey key = SearchKey.ofInt(ts.getInt(ci.columnName));
+                    RID rid = ts.rid();
+                    idx.insert(key, rid);
+                }
+            }
+        } catch (Exception buildEx) {
+            // --- rollback ---
+            try {
+                if (idx != null)
+                    idx.close();
+            } catch (Exception ignore) {
+            }
+            // メタデータの登録を取り消し
+            if (metaRegistered) {
+                try {
+                    mdm.dropIndex(ci.indexName);
+                } catch (Exception ignore) {
+                }
+            }
+            // 物理 .idx を削除
+            fm.deleteFileIfExists(idxFile);
+            throw new RuntimeException("CREATE INDEX failed and was rolled back: " + ci.indexName, buildEx);
+        } finally {
+            // 念のため close（成功時/例外時とも）
+            try {
+                if (idx != null)
+                    idx.close();
+            } catch (Exception ignore) {
+            }
         }
     }
 }

@@ -73,6 +73,31 @@ final class BTreeDirPage implements AutoCloseable {
         return new DirEntry(promoteKey, right.number());
     }
 
+    // ---- 親側ユーティリティ（借用/マージで使用） ----
+    int findChildIndexForKey(int searchKey) {
+        // 親の分割キーは「右ページの先頭キー」。lower_bound 的に検索。
+        int lo = 0, hi = page.keyCount();
+        while (lo < hi) {
+            int mid = (lo + hi) >>> 1;
+            if (page.dirKey(mid) < searchKey)
+                lo = mid + 1;
+            else
+                hi = mid;
+        }
+        return lo; // 最初に key >= searchKey となる位置（= 右ページのエントリ）
+    }
+
+    void replaceSepKeyAt(int idx, int newSepKey) {
+        int child = page.dirChild(idx);
+        page.setDirSlot(idx, newSepKey, child);
+        page.flush();
+    }
+
+    void removeEntryAt(int idx) {
+        page.removeDirAt(idx);
+        page.flush();
+    }
+
     private int lowerBoundDir(int key) {
         int lo = 0, hi = page.keyCount();
         while (lo < hi) {

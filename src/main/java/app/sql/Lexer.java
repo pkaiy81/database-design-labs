@@ -199,6 +199,12 @@ public final class Lexer {
             case "BTREE":
                 type = TokenType.BTREE;
                 break;
+            case "BETWEEN":
+                type = TokenType.BETWEEN;
+                break;
+            case "NOT":
+                type = TokenType.NOT;
+                break;
             default:
                 type = TokenType.IDENT;
                 // raw = raw;

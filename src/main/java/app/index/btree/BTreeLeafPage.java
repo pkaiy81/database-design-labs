@@ -63,6 +63,10 @@ final class BTreeLeafPage implements AutoCloseable {
         return (fm.blockSize() - BTreeLayouts.HEADER_SIZE) / BTreeLayouts.LEAF_SLOT_SIZE;
     }
 
+    int minKeys() {
+        return Math.max(1, capacity() / 2);
+    }
+
     boolean isFull() {
         return keyCount() >= capacity();
     }
@@ -77,6 +81,61 @@ final class BTreeLeafPage implements AutoCloseable {
 
     static BTreeLeafPage open(FileMgr fm, String dataFileName, String idxFile, int blockNo) {
         return new BTreeLeafPage(fm, new BlockId(idxFile, blockNo), dataFileName);
+    }
+
+    // ---- 借用/マージ系（BTreeIndex.delete から使用） ----
+    boolean canBorrowFromLeft(BTreeLeafPage left) {
+        return left != null && left.keyCount() > left.minKeys();
+    }
+
+    boolean canBorrowFromRight(BTreeLeafPage right) {
+        return right != null && right.keyCount() > right.minKeys();
+    }
+
+    // 左の末尾1件を取り出して自分の先頭へ挿入
+    int borrowFromLeft(BTreeLeafPage left) {
+        int posL = left.keyCount() - 1;
+        int k = left.keyAt(posL);
+        RID r = left.ridAt(posL);
+        left.removeAt(posL);
+        int ins = lowerBound(k);
+        insertAt(ins, k, r);
+        return firstKey(); // 親の分割キー（= 右ページ先頭キー）更新用
+    }
+
+    // 右の先頭1件を取り出して自分の末尾へ挿入
+    int borrowFromRight(BTreeLeafPage right) {
+        int k = right.keyAt(0);
+        RID r = right.ridAt(0);
+        right.removeAt(0);
+        int ins = upperBound(k);
+        insertAt(ins, k, r);
+        return right.firstKey(); // 親の分割キー更新用（右ページの新しい先頭）
+    }
+
+    int firstKey() {
+        return keyAt(0);
+    }
+
+    // 右兄弟をすべて取り込み、leaf リンクを繋ぎ替える。右は空になる前提。
+    void mergeWithRight(BTreeLeafPage right) {
+        int n = right.keyCount();
+        for (int i = 0; i < n; i++) {
+            int k = right.keyAt(i);
+            RID r = right.ridAt(i);
+            insertAt(keyCount(), k, r); // 末尾連結（右は >= 自分の最大）
+        }
+        // 右リンクの連結更新（BTPage#splitLeaf の実装に準拠した繋ぎ方を踏襲）
+        int newNext = right.nextLeafBlockNo();
+        this.page.setNext(newNext);
+        if (newNext != -1) {
+            try (BTPage nxt = new BTPage(fm, new BlockId(block().filename(), newNext))) {
+                nxt.setPrev(block().number());
+                nxt.flush();
+            } catch (Exception ignore) {
+            }
+        }
+        right.close(); // right は以後使わない
     }
 
     @Override

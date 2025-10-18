@@ -5,6 +5,7 @@ import app.metadata.MetadataManager;
 import app.query.*;
 import app.record.*;
 import app.storage.FileMgr;
+import app.query.BTreeEqScan;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -33,12 +34,11 @@ public final class Planner {
         TableFile baseTf = new TableFile(fm, ast.from.table + ".tbl", baseLayout);
         Scan s = new TableScan(fm, baseTf);
 
-        // === JOIN ===
+        // === JOIN（既存の HashIndex 経路は温存）===
         for (Ast.Join j : ast.joins) {
             Layout rightLayout = mdm.getLayout(j.table);
             TableFile rightTf = new TableFile(fm, j.table + ".tbl", rightLayout);
 
-            // ON 左=右 を抽出（修飾名は末尾に正規化）
             String leftCol = null, rightCol = null;
             if (j.on.left instanceof Ast.Expr.Col && j.on.right instanceof Ast.Expr.Col) {
                 String l = ((Ast.Expr.Col) j.on.left).name;
@@ -65,23 +65,24 @@ public final class Planner {
         }
 
         // === WHERE ===
-        // （1表かつ 等値(=int) かつ 索引あり の場合のみ IndexSelectScan に置換）
+        // 1表かつ「col = int」の等値述語で、B-Tree が登録されていれば B-Tree 経路を使う
         boolean usedIndexForWhere = false;
-        if (ast.joins.isEmpty() && idxReg != null) {
+        if (ast.joins.isEmpty()) {
             for (Ast.Predicate p : ast.where) {
                 if (p.left instanceof Ast.Expr.Col col && p.right instanceof Ast.Expr.I val) {
                     String colName = stripQualifier(col.name);
-                    Optional<app.index.HashIndex> oidx = idxReg.findHashIndex(ast.from.table, colName);
-                    if (oidx.isPresent()) {
-                        System.out.println("[PLAN] where using index on " + ast.from.table + "." + colName);
-                        s = new IndexSelectScan(fm, baseLayout, ast.from.table + ".tbl", oidx.get(), val.v);
+                    // idxcat から (table,col) のインデックス名を引く（なければ empty）
+                    Optional<String> idxNameOpt = mdm.findIndexOn(ast.from.table, colName);
+                    if (idxNameOpt.isPresent()) {
+                        System.out.println("[PLAN] where using BTree index (EQ) on "
+                                + ast.from.table + "." + colName);
+                        s = new BTreeEqScan(fm, mdm, ast.from.table, idxNameOpt.get(), val.v);
                         usedIndexForWhere = true;
-                    } else {
-                        s = new SelectScan(s, toPredicate(p));
+                        continue;
                     }
-                } else {
-                    s = new SelectScan(s, toPredicate(p));
                 }
+                // （BTree なし or 対応外）→ 従来どおりフィルタ
+                s = new SelectScan(s, toPredicate(p));
             }
         } else {
             for (Ast.Predicate p : ast.where) {
@@ -91,9 +92,8 @@ public final class Planner {
         if (!usedIndexForWhere && ast.where != null && !ast.where.isEmpty())
             System.out.println("[PLAN] where via scan filter");
 
-        // === GROUP BY / AGGREGATION ===
+        // === GROUP BY / AGGREGATION ===（既存そのまま）
         List<String> outputCols = new ArrayList<>();
-
         boolean hasAgg = ast.projections.stream().anyMatch(it -> it instanceof Ast.SelectItem.Agg);
         if (hasAgg || ast.groupBy != null) {
             String groupField = ast.groupBy != null ? stripQualifier(ast.groupBy) : null;
@@ -111,20 +111,15 @@ public final class Planner {
             System.out.println("[PLAN] group-by/agg applied"
                     + (groupField != null ? " (group: " + groupField + ")" : " (global)"));
 
-            // 集約結果の見える列
             if (groupField != null)
                 outputCols.add(groupField);
             for (var sp : specs)
                 outputCols.add(sp.outName());
-
-            // 必要列だけに整形（*は簡易非対応のまま）
-            if (!outputCols.isEmpty()) {
+            if (!outputCols.isEmpty())
                 s = new ProjectScan(s, outputCols);
-            }
 
-            // HAVING（単一条件）
             if (ast.having != null) {
-                String outName = toAggOutName(ast.having.func, ast.having.arg); // count / sum_x / ...
+                String outName = toAggOutName(ast.having.func, ast.having.arg);
                 var op = switch (ast.having.op) {
                     case ">" -> app.query.HavingScan.Op.GT;
                     case ">=" -> app.query.HavingScan.Op.GE;
@@ -136,7 +131,6 @@ public final class Planner {
                 s = new app.query.HavingScan(s, outName, op, ast.having.rhs);
             }
         } else {
-            // 非集約時の PROJECTION
             boolean hasStar = ast.projections.stream()
                     .anyMatch(it -> it instanceof Ast.SelectItem.Column
                             && "*".equals(((Ast.SelectItem.Column) it).name));
@@ -146,46 +140,134 @@ public final class Planner {
                         outputCols.add(stripQualifier(c.name));
                     }
                 }
-                if (!outputCols.isEmpty()) {
+                if (!outputCols.isEmpty())
                     s = new ProjectScan(s, outputCols);
-                }
             } else {
-                // SELECT * のときは、ORDER BY 用に最低限 並べ替えキーを後で carry します
                 outputCols.clear();
             }
         }
 
-        // === DISTINCT（ORDER/LIMIT の前に）===
+        // DISTINCT / ORDER BY / LIMIT（既存そのまま）
         if (ast.distinct) {
-            // DISTINCT は ProjectScan 後の可視列に対して適用する
             List<String> cols;
-            if (outputCols.isEmpty()) { // SELECT * の場合の簡易処理
-                if (ast.groupBy != null || hasAgg) { // 集約系 * は列名が明確なので outCols を使う
+            if (outputCols.isEmpty()) {
+                if (ast.groupBy != null || hasAgg)
                     cols = new java.util.ArrayList<>(outputCols);
-                } else {
+                else
                     throw new IllegalArgumentException("DISTINCT with SELECT * is not supported in this minimal impl");
-                }
-            } else {
+            } else
                 cols = outputCols;
-            }
             s = new app.query.DistinctScan(s, cols);
         }
 
-        // === ORDER BY（単一列）===
         if (ast.orderBy != null) {
             String fld = stripQualifier(ast.orderBy.field);
-            // carryFields: 既に決まっている出力列。未指定（SELECT * 等）の場合はキーだけでもOK
             List<String> carry = outputCols.isEmpty() ? List.of(fld) : outputCols;
             s = new OrderByScan(s, fld, ast.orderBy.asc, carry);
         }
 
-        // === LIMIT ===
-        if (ast.limit != null) {
+        if (ast.limit != null)
             s = new LimitScan(s, ast.limit);
-        }
-
         return s;
     }
+
+    // ===== B-Tree の等値スキャン（RangeCursor を介して実装） =====
+    // static final class BTreeEqScan implements Scan {
+    // private final FileMgr fm;
+    // private final MetadataManager mdm;
+    // private final String table;
+    // private final String indexName;
+    // private final int key;
+
+    // private TableFile tf;
+    // private TableScan ts;
+    // private BTreeIndex idx;
+    // private RangeCursor cur;
+
+    // BTreeEqScan(FileMgr fm, MetadataManager mdm, String table, String indexName,
+    // int key) {
+    // this.fm = fm;
+    // this.mdm = mdm;
+    // this.table = table;
+    // this.indexName = indexName;
+    // this.key = key;
+    // init(); // 初期化
+    // }
+
+    // private void init() {
+    // try {
+    // Layout layout = mdm.getLayout(table);
+    // this.tf = new TableFile(fm, table + ".tbl", layout);
+    // this.ts = new TableScan(fm, tf);
+    // this.idx = new BTreeIndex(fm, indexName, table + ".tbl");
+    // this.idx.open();
+    // // 等値は [k,k] のレンジとして扱う
+    // this.cur = idx.range(SearchKey.ofInt(key), true, SearchKey.ofInt(key), true);
+    // } catch (Exception e) {
+    // throw new RuntimeException(e);
+    // }
+    // }
+
+    // @Override
+    // public void beforeFirst() {
+    // // テーブル側を先頭に戻し、カーソル/インデックスも再作成
+    // try {
+    // if (cur != null)
+    // cur.close();
+    // } catch (Exception ignore) {
+    // }
+    // try {
+    // if (idx != null)
+    // idx.close();
+    // } catch (Exception ignore) {
+    // }
+    // ts.beforeFirst();
+    // init(); // 再初期化
+    // }
+
+    // @Override
+    // public boolean next() {
+    // try {
+    // if (!cur.next())
+    // return false;
+    // RID r = cur.getDataRid();
+    // return ts.moveTo(r);
+    // } catch (Exception e) {
+    // throw new RuntimeException(e);
+    // }
+    // }
+
+    // @Override
+    // public int getInt(String col) {
+    // return ts.getInt(col);
+    // }
+
+    // @Override
+    // public String getString(String c) {
+    // return ts.getString(c);
+    // }
+
+    // @Override
+    // public void close() {
+    // // Scan.close() は throws しない想定：内部で握りつぶす
+    // try {
+    // if (cur != null)
+    // cur.close();
+    // } catch (Exception ignore) {
+    // }
+    // try {
+    // if (idx != null)
+    // idx.close();
+    // } catch (Exception ignore) {
+    // }
+    // try {
+    // if (ts != null)
+    // ts.close();
+    // } catch (Exception ignore) {
+    // }
+    // // tf は close を持たないので何もしない
+    // }
+    // }
 
     private static String stripQualifier(String name) {
         return (name != null && name.contains(".")) ? name.substring(name.indexOf('.') + 1) : name;
@@ -220,5 +302,4 @@ public final class Planner {
             default -> throw new IllegalArgumentException("unknown agg: " + func);
         };
     }
-
 }

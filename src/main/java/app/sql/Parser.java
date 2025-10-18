@@ -20,8 +20,8 @@ public final class Parser {
 
         expect(TokenType.ON);
 
-        // ← ここがポイント：テーブル名はまず単体 IDENT として読む
-        String tbl = parseIdent(); // parseIdentQualified() ではなく、単体IDENTを読む想定
+        // テーブル名はまず単体 IDENT として読む
+        String tbl = parseIdent(); // parseIdentQualified() ではなく、単体 IDENT を読む想定
 
         String col;
         if (lx.type() == TokenType.LPAREN) {
@@ -205,6 +205,20 @@ public final class Parser {
 
     private Ast.Predicate parseEqPredicate() {
         Ast.Expr left = parseExpr();
+
+        // 現在は等値(=)のみ対応.
+        // BETWEEN / NOT BETWEEN の場合には未サポートを表示
+        // TODO: BETWEEN 対応
+        if (lx.type() == BETWEEN) {
+            throw err(
+                    "BETWEEN is not supported in this build (WHERE supports only equality predicates like `col = value`).");
+        }
+        if (lx.type() == NOT) {
+            // NOT BETWEEN の先読みは無いが、NOT が来た時点で未サポートを通知する
+            throw err(
+                    "NOT/BETWEEN is not supported in this build (WHERE supports only equality predicates like `col = value`).");
+        }
+
         expect(EQ);
         Ast.Expr right = parseExpr();
         return new Ast.Predicate(left, right);
