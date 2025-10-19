@@ -9,5 +9,7 @@ public enum TokenType {
     CREATE, INDEX,
     USING, BTREE,
     BETWEEN, NOT,
+    SYMBOL, // 未知のシンボル
+    KEYWORD, // 未知のキーワード
     EOF
 }

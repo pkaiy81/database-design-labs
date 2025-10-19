@@ -1,11 +1,13 @@
 package app.sql;
 
 import app.index.IndexRegistry;
+import app.index.SearchKey;
+import app.index.btree.BTreeIndex;
+import app.index.btree.BTreeRangeScan;
 import app.metadata.MetadataManager;
 import app.query.*;
 import app.record.*;
 import app.storage.FileMgr;
-import app.query.BTreeEqScan;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -65,22 +67,19 @@ public final class Planner {
         }
 
         // === WHERE ===
-        // 1表かつ「col = int」の等値述語で、B-Tree が登録されていれば B-Tree 経路を使う
+        // 単一テーブルの場合は B-Tree インデックス最適化を優先的に試す
         boolean usedIndexForWhere = false;
+        Ast.Predicate predicateHandledByIndex = null;
         if (ast.joins.isEmpty()) {
+            IndexPlanResult indexPlan = planSingleTableWithPossibleIndex(ast.from.table, ast.where);
+            if (indexPlan != null) {
+                s = indexPlan.scan;
+                predicateHandledByIndex = indexPlan.predicate;
+                usedIndexForWhere = true;
+            }
             for (Ast.Predicate p : ast.where) {
-                if (p.left instanceof Ast.Expr.Col col && p.right instanceof Ast.Expr.I val) {
-                    String colName = stripQualifier(col.name);
-                    // idxcat から (table,col) のインデックス名を引く（なければ empty）
-                    Optional<String> idxNameOpt = mdm.findIndexOn(ast.from.table, colName);
-                    if (idxNameOpt.isPresent()) {
-                        System.out.println("[PLAN] where using BTree index (EQ) on "
-                                + ast.from.table + "." + colName);
-                        s = new BTreeEqScan(fm, mdm, ast.from.table, idxNameOpt.get(), val.v);
-                        usedIndexForWhere = true;
-                        continue;
-                    }
-                }
+                if (p == predicateHandledByIndex)
+                    continue;
                 // （BTree なし or 対応外）→ 従来どおりフィルタ
                 s = new SelectScan(s, toPredicate(p));
             }
@@ -171,104 +170,6 @@ public final class Planner {
         return s;
     }
 
-    // ===== B-Tree の等値スキャン（RangeCursor を介して実装） =====
-    // static final class BTreeEqScan implements Scan {
-    // private final FileMgr fm;
-    // private final MetadataManager mdm;
-    // private final String table;
-    // private final String indexName;
-    // private final int key;
-
-    // private TableFile tf;
-    // private TableScan ts;
-    // private BTreeIndex idx;
-    // private RangeCursor cur;
-
-    // BTreeEqScan(FileMgr fm, MetadataManager mdm, String table, String indexName,
-    // int key) {
-    // this.fm = fm;
-    // this.mdm = mdm;
-    // this.table = table;
-    // this.indexName = indexName;
-    // this.key = key;
-    // init(); // 初期化
-    // }
-
-    // private void init() {
-    // try {
-    // Layout layout = mdm.getLayout(table);
-    // this.tf = new TableFile(fm, table + ".tbl", layout);
-    // this.ts = new TableScan(fm, tf);
-    // this.idx = new BTreeIndex(fm, indexName, table + ".tbl");
-    // this.idx.open();
-    // // 等値は [k,k] のレンジとして扱う
-    // this.cur = idx.range(SearchKey.ofInt(key), true, SearchKey.ofInt(key), true);
-    // } catch (Exception e) {
-    // throw new RuntimeException(e);
-    // }
-    // }
-
-    // @Override
-    // public void beforeFirst() {
-    // // テーブル側を先頭に戻し、カーソル/インデックスも再作成
-    // try {
-    // if (cur != null)
-    // cur.close();
-    // } catch (Exception ignore) {
-    // }
-    // try {
-    // if (idx != null)
-    // idx.close();
-    // } catch (Exception ignore) {
-    // }
-    // ts.beforeFirst();
-    // init(); // 再初期化
-    // }
-
-    // @Override
-    // public boolean next() {
-    // try {
-    // if (!cur.next())
-    // return false;
-    // RID r = cur.getDataRid();
-    // return ts.moveTo(r);
-    // } catch (Exception e) {
-    // throw new RuntimeException(e);
-    // }
-    // }
-
-    // @Override
-    // public int getInt(String col) {
-    // return ts.getInt(col);
-    // }
-
-    // @Override
-    // public String getString(String c) {
-    // return ts.getString(c);
-    // }
-
-    // @Override
-    // public void close() {
-    // // Scan.close() は throws しない想定：内部で握りつぶす
-    // try {
-    // if (cur != null)
-    // cur.close();
-    // } catch (Exception ignore) {
-    // }
-    // try {
-    // if (idx != null)
-    // idx.close();
-    // } catch (Exception ignore) {
-    // }
-    // try {
-    // if (ts != null)
-    // ts.close();
-    // } catch (Exception ignore) {
-    // }
-    // // tf は close を持たないので何もしない
-    // }
-    // }
-
     private static String stripQualifier(String name) {
         return (name != null && name.contains(".")) ? name.substring(name.indexOf('.') + 1) : name;
     }
@@ -302,4 +203,109 @@ public final class Planner {
             default -> throw new IllegalArgumentException("unknown agg: " + func);
         };
     }
+
+    private IndexPlanResult planSingleTableWithPossibleIndex(String tableName, List<Ast.Predicate> predicates) {
+        if (predicates == null || predicates.isEmpty())
+            return null;
+
+        for (Ast.Predicate predicate : predicates) {
+            String column = extractColumn(predicate);
+            if (column == null)
+                continue;
+            String colName = stripQualifier(column);
+            Optional<String> idxNameOpt = mdm.findIndexOn(tableName, colName);
+            if (idxNameOpt.isEmpty())
+                continue;
+            String idxName = idxNameOpt.get();
+
+            Integer eqVal = extractEqValue(predicate);
+            if (eqVal != null) {
+                System.out.println("[PLAN] where using BTree index (EQ) on " + tableName + "." + colName);
+                Scan scan = new BTreeEqScan(fm, mdm, tableName, idxName, eqVal);
+                return new IndexPlanResult(scan, predicate);
+            }
+
+            RangeBound range = extractRange(predicate);
+            if (range != null) {
+                System.out.println("[PLAN] where using BTree index (RANGE) on " + tableName + "." + colName);
+                try {
+                    BTreeIndex idx = new BTreeIndex(fm, idxName, tableName + ".tbl");
+                    idx.open();
+                    Layout layout = mdm.getLayout(tableName);
+                    TableFile tf = new TableFile(fm, tableName + ".tbl", layout);
+                    TableScan ts = new TableScan(fm, tf);
+                    ts.beforeFirst();
+                    Scan scan = new BTreeRangeScan(ts, idx, range.loKey, range.loInclusive, range.hiKey,
+                            range.hiInclusive);
+                    return new IndexPlanResult(scan, predicate);
+                } catch (Exception e) {
+                    throw new RuntimeException("Failed to build BTree range plan for "
+                            + tableName + "." + colName, e);
+                }
+            }
+        }
+        return null;
+    }
+
+    private RangeBound extractRange(Ast.Predicate p) {
+        if (p instanceof Ast.PredicateBetween between) {
+            return new RangeBound(keyInt(between.low), true, keyInt(between.high), true);
+        }
+        if (p instanceof Ast.PredicateCompare compare && compare.right instanceof Ast.Expr.I val) {
+            return switch (compare.op) {
+                case ">=" -> new RangeBound(keyInt(val.v), true, null, false);
+                case ">" -> new RangeBound(keyInt(val.v), false, null, false);
+                case "<=" -> new RangeBound(null, false, keyInt(val.v), true);
+                case "<" -> new RangeBound(null, false, keyInt(val.v), false);
+                default -> null;
+            };
+        }
+        return null;
+    }
+
+    private String extractColumn(Ast.Predicate p) {
+        if (p == null)
+            return null;
+        Ast.Expr left = p.left;
+        if (left instanceof Ast.Expr.Col col)
+            return stripQualifier(col.name);
+        return null;
+    }
+
+    private Integer extractEqValue(Ast.Predicate p) {
+        if (p instanceof Ast.PredicateCompare compare && "=".equals(compare.op)
+                && compare.right instanceof Ast.Expr.I valFromCompare) {
+            return valFromCompare.v;
+        }
+        return null;
+    }
+
+    private SearchKey keyInt(int v) {
+        return SearchKey.ofInt(v);
+    }
+
+    private static final class RangeBound {
+        final SearchKey loKey;
+        final boolean loInclusive;
+        final SearchKey hiKey;
+        final boolean hiInclusive;
+
+        RangeBound(SearchKey loKey, boolean loInclusive, SearchKey hiKey, boolean hiInclusive) {
+            this.loKey = loKey;
+            this.loInclusive = loInclusive;
+            this.hiKey = hiKey;
+            this.hiInclusive = hiInclusive;
+        }
+    }
+
+    private static final class IndexPlanResult {
+        final Scan scan;
+        final Ast.Predicate predicate;
+
+        IndexPlanResult(Scan scan, Ast.Predicate predicate) {
+            this.scan = scan;
+            this.predicate = predicate;
+        }
+    }
+
 }

@@ -57,6 +57,11 @@ public final class TableFile {
         throw new UnsupportedOperationException("use writePage(BlockId, Page) variant");
     }
 
+    // hasField
+    public boolean hasField(String fldName) {
+        return layout.schema().hasField(fldName);
+    }
+
     /** RecordPageの基となるPageを直接書き戻すためのユーティリティ */
     public void writePage(BlockId b, Page page) {
         fm.write(b, page);

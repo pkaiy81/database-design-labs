@@ -203,25 +203,116 @@ public final class Parser {
         }
     }
 
+    // parseIdentifier()
+    private String parseIdentifier() {
+        if (lx.type() != IDENT)
+            throw err("identifier");
+        String id = lx.text();
+        lx.next();
+        return id;
+    }
+
+    // matchSymbol()/matchKeyword()
+    private boolean matchSymbol(String sym) {
+        TokenType t = lx.type();
+        if (t == TokenType.SYMBOL && lx.text().equals(sym)) {
+            lx.next();
+            return true;
+        }
+        switch (sym) {
+            case "<=":
+                if (t == TokenType.LE) {
+                    lx.next();
+                    return true;
+                }
+                break;
+            case ">=":
+                if (t == TokenType.GE) {
+                    lx.next();
+                    return true;
+                }
+                break;
+            case "<":
+                if (t == TokenType.LT) {
+                    lx.next();
+                    return true;
+                }
+                break;
+            case ">":
+                if (t == TokenType.GT) {
+                    lx.next();
+                    return true;
+                }
+                break;
+            case "=":
+                if (t == TokenType.EQ) {
+                    lx.next();
+                    return true;
+                }
+                break;
+            default:
+                break;
+        }
+        return false;
+    }
+
+    private boolean matchKeyword(String kw) {
+        TokenType t = lx.type();
+        if (t == TokenType.KEYWORD && lx.text().equals(kw)) {
+            lx.next();
+            return true;
+        }
+        if (t.name().equalsIgnoreCase(kw)) {
+            lx.next();
+            return true;
+        }
+        return false;
+    }
+
+    // parseIntLiteral()
+    private int parseIntLiteral() {
+        if (lx.type() != INT)
+            throw err("integer literal");
+        int v = Integer.parseInt(lx.text());
+        lx.next();
+        return v;
+    }
+
+    // expectKeyword()
+    private void expectKeyword(String kw) {
+        TokenType t = lx.type();
+        if (t == TokenType.KEYWORD && lx.text().equals(kw)) {
+            lx.next();
+            return;
+        }
+        if (t.name().equalsIgnoreCase(kw)) {
+            lx.next();
+            return;
+        }
+        throw err("expected keyword " + kw);
+    }
+
     private Ast.Predicate parseEqPredicate() {
-        Ast.Expr left = parseExpr();
+        String col = parseIdentifier();
 
-        // 現在は等値(=)のみ対応.
-        // BETWEEN / NOT BETWEEN の場合には未サポートを表示
-        // TODO: BETWEEN 対応
-        if (lx.type() == BETWEEN) {
-            throw err(
-                    "BETWEEN is not supported in this build (WHERE supports only equality predicates like `col = value`).");
+        if (matchKeyword("BETWEEN")) {
+            int lo = parseIntLiteral();
+            expectKeyword("AND");
+            int hi = parseIntLiteral();
+            return new Ast.PredicateBetween(new Ast.Expr.Col(col), lo, hi);
         }
-        if (lx.type() == NOT) {
-            // NOT BETWEEN の先読みは無いが、NOT が来た時点で未サポートを通知する
-            throw err(
-                    "NOT/BETWEEN is not supported in this build (WHERE supports only equality predicates like `col = value`).");
-        }
+        if (matchSymbol("<="))
+            return new Ast.PredicateCompare(col, Ast.CompareOp.LE, parseIntLiteral());
+        if (matchSymbol(">="))
+            return new Ast.PredicateCompare(col, Ast.CompareOp.GE, parseIntLiteral());
+        if (matchSymbol("<"))
+            return new Ast.PredicateCompare(col, Ast.CompareOp.LT, parseIntLiteral());
+        if (matchSymbol(">"))
+            return new Ast.PredicateCompare(col, Ast.CompareOp.GT, parseIntLiteral());
+        if (matchSymbol("="))
+            return new Ast.PredicateCompare(col, Ast.CompareOp.EQ, parseIntLiteral());
 
-        expect(EQ);
-        Ast.Expr right = parseExpr();
-        return new Ast.Predicate(left, right);
+        throw err("expected comparison operator or BETWEEN");
     }
 
     private Ast.Expr parseExpr() {
