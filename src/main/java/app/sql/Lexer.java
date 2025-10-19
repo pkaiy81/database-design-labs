@@ -187,6 +187,24 @@ public final class Lexer {
             case "DESC":
                 type = TokenType.DESC;
                 break;
+            case "INSERT":
+                type = TokenType.INSERT;
+                break;
+            case "INTO":
+                type = TokenType.INTO;
+                break;
+            case "VALUES":
+                type = TokenType.VALUES;
+                break;
+            case "UPDATE":
+                type = TokenType.UPDATE;
+                break;
+            case "SET":
+                type = TokenType.SET;
+                break;
+            case "DELETE":
+                type = TokenType.DELETE;
+                break;
             case "CREATE":
                 type = TokenType.CREATE;
                 break;

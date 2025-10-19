@@ -12,6 +12,16 @@ public final class Parser {
         this.lx = new Lexer(sql);
     }
 
+    public Ast.Statement parseStatement() {
+        return switch (lx.type()) {
+            case SELECT -> parseSelect();
+            case INSERT -> parseInsert();
+            case UPDATE -> parseUpdate();
+            case DELETE -> parseDelete();
+            default -> throw err("unsupported statement start: " + lx.type());
+        };
+    }
+
     public Ast.CreateIndexStmt parseCreateIndex() {
         expect(TokenType.CREATE);
         expect(TokenType.INDEX);
@@ -120,6 +130,47 @@ public final class Parser {
 
         expect(EOF);
         return new Ast.SelectStmt(distinct, proj, from, joins, where, groupBy, having, ob, limit);
+    }
+
+    private Ast.InsertStmt parseInsert() {
+        expect(INSERT);
+        expect(INTO);
+        String table = parseIdentQualified();
+        expect(LPAREN);
+        List<String> columns = parseIdentifierList();
+        expect(RPAREN);
+        expect(VALUES);
+        expect(LPAREN);
+        List<Ast.Expr> values = parseLiteralList();
+        expect(RPAREN);
+        if (columns.size() != values.size())
+            throw err("columns and values count mismatch");
+        expect(EOF);
+        return new Ast.InsertStmt(table, columns, values);
+    }
+
+    private Ast.UpdateStmt parseUpdate() {
+        expect(UPDATE);
+        String table = parseIdentQualified();
+        expect(SET);
+        List<Ast.UpdateStmt.Assignment> assignments = new ArrayList<>();
+        assignments.add(parseAssignment());
+        while (lx.type() == COMMA) {
+            lx.next();
+            assignments.add(parseAssignment());
+        }
+        List<Ast.Predicate> where = parseWhereClauseIfPresent();
+        expect(EOF);
+        return new Ast.UpdateStmt(table, assignments, where);
+    }
+
+    private Ast.DeleteStmt parseDelete() {
+        expect(DELETE);
+        expect(FROM);
+        String table = parseIdentQualified();
+        List<Ast.Predicate> where = parseWhereClauseIfPresent();
+        expect(EOF);
+        return new Ast.DeleteStmt(table, where);
     }
 
     private Ast.Having parseHaving() {
@@ -315,27 +366,6 @@ public final class Parser {
         throw err("expected comparison operator or BETWEEN");
     }
 
-    private Ast.Expr parseExpr() {
-        switch (lx.type()) {
-            case STRING: {
-                String v = lx.text();
-                lx.next();
-                return new Ast.Expr.S(v);
-            }
-            case INT: {
-                int v = Integer.parseInt(lx.text());
-                lx.next();
-                return new Ast.Expr.I(v);
-            }
-            case IDENT: {
-                String id = parseIdentQualified();
-                return new Ast.Expr.Col(id);
-            }
-            default:
-                throw err("expr");
-        }
-    }
-
     private String parseIdentQualified() {
         if (lx.type() != IDENT)
             throw err("identifier");
@@ -364,6 +394,60 @@ public final class Parser {
         if (lx.type() != t)
             throw err("expected " + t + " but got " + lx.type());
         lx.next();
+    }
+
+    private List<String> parseIdentifierList() {
+        List<String> cols = new ArrayList<>();
+        cols.add(parseIdentQualified());
+        while (lx.type() == COMMA) {
+            lx.next();
+            cols.add(parseIdentQualified());
+        }
+        return cols;
+    }
+
+    private List<Ast.Expr> parseLiteralList() {
+        List<Ast.Expr> values = new ArrayList<>();
+        values.add(parseLiteral());
+        while (lx.type() == COMMA) {
+            lx.next();
+            values.add(parseLiteral());
+        }
+        return values;
+    }
+
+    private Ast.Expr parseLiteral() {
+        if (lx.type() == INT) {
+            int v = Integer.parseInt(lx.text());
+            lx.next();
+            return new Ast.Expr.I(v);
+        }
+        if (lx.type() == STRING) {
+            String v = lx.text();
+            lx.next();
+            return new Ast.Expr.S(v);
+        }
+        throw err("literal value");
+    }
+
+    private Ast.UpdateStmt.Assignment parseAssignment() {
+        String column = parseIdentQualified();
+        expect(EQ);
+        Ast.Expr value = parseLiteral();
+        return new Ast.UpdateStmt.Assignment(column, value);
+    }
+
+    private List<Ast.Predicate> parseWhereClauseIfPresent() {
+        List<Ast.Predicate> where = new ArrayList<>();
+        if (lx.type() == WHERE) {
+            lx.next();
+            where.add(parseEqPredicate());
+            while (lx.type() == AND) {
+                lx.next();
+                where.add(parseEqPredicate());
+            }
+        }
+        return where;
     }
 
     private RuntimeException err(String m) {

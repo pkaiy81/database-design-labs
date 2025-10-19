@@ -29,7 +29,13 @@ public final class Planner {
     }
 
     public Scan plan(String sql) {
-        Ast.SelectStmt ast = new Parser(sql).parseSelect();
+        Ast.Statement stmt = new Parser(sql).parseStatement();
+        if (stmt instanceof Ast.SelectStmt select)
+            return plan(select);
+        throw new IllegalArgumentException("planner.plan(String) supports SELECT statements only");
+    }
+
+    public Scan plan(Ast.SelectStmt ast) {
 
         // === FROM ===
         Layout baseLayout = mdm.getLayout(ast.from.table);
@@ -168,6 +174,119 @@ public final class Planner {
         if (ast.limit != null)
             s = new LimitScan(s, ast.limit);
         return s;
+    }
+
+    public int executeInsert(Ast.InsertStmt stmt) {
+        String table = stmt.table;
+        Layout layout = mdm.getLayout(table);
+        Schema schema = layout.schema();
+        TableFile tf = new TableFile(fm, table + ".tbl", layout);
+
+        try (TableScan ts = new TableScan(fm, tf)) {
+            ts.enableIndexMaintenance(mdm, table);
+            ts.beforeFirst();
+            ts.insert();
+            for (int i = 0; i < stmt.columns.size(); i++) {
+                String col = stripQualifier(stmt.columns.get(i));
+                if (!schema.hasField(col))
+                    throw new IllegalArgumentException("Unknown column '" + col + "' on table " + table);
+                FieldType type = schema.fieldType(col);
+                Ast.Expr value = stmt.values.get(i);
+                switch (type) {
+                    case INT -> ts.setInt(col, expectIntLiteral(value, table, col));
+                    case STRING -> ts.setString(col, expectStringLiteral(value, table, col));
+                    default -> throw new IllegalArgumentException("Unsupported field type: " + type);
+                }
+            }
+            return 1;
+        }
+    }
+
+    public int executeUpdate(Ast.UpdateStmt stmt) {
+        String table = stmt.table;
+        Layout layout = mdm.getLayout(table);
+        Schema schema = layout.schema();
+        TableFile tf = new TableFile(fm, table + ".tbl", layout);
+        List<Predicate> predicates = compilePredicates(stmt.where);
+
+        int updated = 0;
+        try (TableScan ts = new TableScan(fm, tf)) {
+            ts.enableIndexMaintenance(mdm, table);
+            ts.beforeFirst();
+            while (ts.next()) {
+                if (!matchesWhere(ts, predicates))
+                    continue;
+                for (Ast.UpdateStmt.Assignment assignment : stmt.assignments) {
+                    String col = stripQualifier(assignment.column);
+                    if (!schema.hasField(col))
+                        throw new IllegalArgumentException("Unknown column '" + col + "' on table " + table);
+                    FieldType type = schema.fieldType(col);
+                    Ast.Expr value = assignment.value;
+                    switch (type) {
+                        case INT -> ts.setInt(col, expectIntLiteral(value, table, col));
+                        case STRING -> ts.setString(col, expectStringLiteral(value, table, col));
+                        default -> throw new IllegalArgumentException("Unsupported field type: " + type);
+                    }
+                }
+                updated++;
+            }
+        }
+        return updated;
+    }
+
+    public int executeDelete(Ast.DeleteStmt stmt) {
+        String table = stmt.table;
+        Layout layout = mdm.getLayout(table);
+        TableFile tf = new TableFile(fm, table + ".tbl", layout);
+        List<Predicate> predicates = compilePredicates(stmt.where);
+
+        int deleted = 0;
+        try (TableScan ts = new TableScan(fm, tf)) {
+            ts.enableIndexMaintenance(mdm, table);
+            ts.beforeFirst();
+            while (ts.next()) {
+                if (!matchesWhere(ts, predicates))
+                    continue;
+                ts.delete();
+                deleted++;
+            }
+        }
+        return deleted;
+    }
+
+    private int expectIntLiteral(Ast.Expr expr, String table, String column) {
+        if (expr instanceof Ast.Expr.I i)
+            return i.v;
+        throw new IllegalArgumentException("Column '" + column + "' on table " + table + " expects INT literal");
+    }
+
+    private String expectStringLiteral(Ast.Expr expr, String table, String column) {
+        if (expr instanceof Ast.Expr.S s)
+            return s.v;
+        throw new IllegalArgumentException(
+                "Column '" + column + "' on table " + table + " expects STRING literal");
+    }
+
+    private List<Predicate> compilePredicates(List<Ast.Predicate> predicates) {
+        if (predicates == null || predicates.isEmpty())
+            return List.of();
+        List<Predicate> list = new ArrayList<>(predicates.size());
+        for (Ast.Predicate p : predicates) {
+            try {
+                list.add(toPredicate(p));
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("Unsupported predicate in WHERE clause for DML", e);
+            }
+        }
+        return list;
+    }
+
+    private boolean matchesWhere(Scan scan, List<Predicate> predicates) {
+        for (Predicate predicate : predicates) {
+            if (!predicate.evaluate(scan))
+                return false;
+        }
+        return true;
     }
 
     private static String stripQualifier(String name) {
