@@ -23,6 +23,7 @@ public class IndexJoinDemo {
         Layout sLayout = mdm.getLayout("students");
         TableFile sFile = new TableFile(fm, "students.tbl", sLayout);
         try (TableScan ts = new TableScan(fm, sFile)) {
+            ts.enableIndexMaintenance(mdm, "students");
             ts.insert();
             ts.setInt("id", 1);
             ts.setString("name", "Ada");
@@ -40,6 +41,7 @@ public class IndexJoinDemo {
         Layout eLayout = mdm.getLayout("enrollments");
         TableFile eFile = new TableFile(fm, "enrollments.tbl", eLayout);
         try (TableScan ts = new TableScan(fm, eFile)) {
+            ts.enableIndexMaintenance(mdm, "enrollments");
             ts.insert();
             ts.setInt("student_id", 1);
             ts.setString("course", "DB");

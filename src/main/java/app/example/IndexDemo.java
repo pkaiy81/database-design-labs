@@ -31,6 +31,7 @@ public class IndexDemo {
         HashIndex idx = new HashIndex(fm, "students_id", tblFile, 17); // 17バケット
 
         try (TableScan scan = new TableScan(fm, tf)) {
+            scan.enableIndexMaintenance(mdm, tblName);
             // 1件目
             scan.insert();
             scan.setInt("id", 1);
