@@ -10,7 +10,10 @@ import app.record.*;
 import app.storage.FileMgr;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 public final class Planner {
@@ -35,9 +38,8 @@ public final class Planner {
         throw new IllegalArgumentException("planner.plan(String) supports SELECT statements only");
     }
 
-    public Scan plan(Ast.SelectStmt ast) {
+    public PreparedPlan prepare(Ast.SelectStmt ast) {
 
-        // === FROM ===
         Layout baseLayout = mdm.getLayout(ast.from.table);
         TableFile baseTf = new TableFile(fm, ast.from.table + ".tbl", baseLayout);
 
@@ -48,17 +50,19 @@ public final class Planner {
         IndexOrderPlan indexOrderPlan = tryPlanIndexOrder(ast, baseLayout, baseTf);
 
         Scan s;
+        PlanNode planNode;
         boolean usedIndexForWhere = indexOrderPlan != null;
         if (indexOrderPlan != null) {
             s = indexOrderPlan.scan;
+            planNode = indexOrderPlan.planNode;
             skipWhereProcessing = true;
             orderHandled = true;
             limitHandled = indexOrderPlan.limitHandled;
         } else {
             s = new TableScan(fm, baseTf);
+            planNode = node("TableScan", mapOf("table", ast.from.table));
         }
 
-        // === JOIN（既存の HashIndex 経路は温存）===
         for (Ast.Join j : ast.joins) {
             Layout rightLayout = mdm.getLayout(j.table);
             TableFile rightTf = new TableFile(fm, j.table + ".tbl", rightLayout);
@@ -71,6 +75,7 @@ public final class Planner {
                 rightCol = stripQualifier(r);
             }
 
+            PlanNode rightPlanNode = node("TableScan", mapOf("table", j.table));
             boolean usedIndex = false;
             if (idxReg != null && rightCol != null) {
                 Optional<app.index.HashIndex> opt = idxReg.findHashIndex(j.table, rightCol);
@@ -78,43 +83,53 @@ public final class Planner {
                     System.out.println("[PLAN] join using index on " + j.table + "." + rightCol);
                     s = new app.query.IndexJoinScan(
                             s, fm, rightLayout, j.table + ".tbl", opt.get(), leftCol, rightCol);
+                    planNode = node("IndexJoin", mapOf(
+                            "table", j.table,
+                            "indexCol", rightCol,
+                            "leftCol", leftCol),
+                            planNode, rightPlanNode);
                     usedIndex = true;
                 }
             }
             if (!usedIndex) {
                 System.out.println("[PLAN] join via product + filter (no index)");
-                s = new ProductScan(s, new TableScan(fm, rightTf));
-                s = new SelectScan(s, toPredicate(j.on));
+                Scan rightScan = new TableScan(fm, rightTf);
+                s = new ProductScan(s, rightScan);
+                planNode = node("NestedLoopJoin", mapOf("table", j.table), planNode, rightPlanNode);
+                Predicate predicate = toPredicate(j.on);
+                s = new SelectScan(s, predicate);
+                planNode = node("Filter", mapOf("pred", predicateToString(j.on)), planNode);
             }
         }
 
-        // === WHERE ===
-        // 単一テーブルの場合は B-Tree インデックス最適化を優先的に試す
         Ast.Predicate predicateHandledByIndex = null;
         if (!skipWhereProcessing) {
             if (ast.joins.isEmpty()) {
                 IndexPlanResult indexPlan = planSingleTableWithPossibleIndex(ast.from.table, ast.where);
                 if (indexPlan != null) {
                     s = indexPlan.scan;
+                    planNode = indexPlan.planNode;
                     predicateHandledByIndex = indexPlan.predicate;
                     usedIndexForWhere = true;
                 }
-                for (Ast.Predicate p : ast.where) {
-                    if (p == predicateHandledByIndex)
-                        continue;
-                    // （BTree なし or 対応外）→ 従来どおりフィルタ
-                    s = new SelectScan(s, toPredicate(p));
+                if (ast.where != null) {
+                    for (Ast.Predicate p : ast.where) {
+                        if (p == predicateHandledByIndex)
+                            continue;
+                        s = new SelectScan(s, toPredicate(p));
+                        planNode = node("Filter", mapOf("pred", predicateToString(p)), planNode);
+                    }
                 }
-            } else {
+            } else if (ast.where != null) {
                 for (Ast.Predicate p : ast.where) {
                     s = new SelectScan(s, toPredicate(p));
+                    planNode = node("Filter", mapOf("pred", predicateToString(p)), planNode);
                 }
             }
             if (!usedIndexForWhere && ast.where != null && !ast.where.isEmpty())
                 System.out.println("[PLAN] where via scan filter");
         }
 
-        // === GROUP BY / AGGREGATION ===（既存そのまま）
         List<String> outputCols = new ArrayList<>();
         boolean hasAgg = ast.projections.stream().anyMatch(it -> it instanceof Ast.SelectItem.Agg);
         if (hasAgg || ast.groupBy != null) {
@@ -130,6 +145,7 @@ public final class Planner {
             }
 
             s = new GroupByScan(s, groupField, specs);
+            planNode = node("GroupBy", mapOf("group", groupField != null ? groupField : "(global)"), planNode);
             System.out.println("[PLAN] group-by/agg applied"
                     + (groupField != null ? " (group: " + groupField + ")" : " (global)"));
 
@@ -137,8 +153,10 @@ public final class Planner {
                 outputCols.add(groupField);
             for (var sp : specs)
                 outputCols.add(sp.outName());
-            if (!outputCols.isEmpty())
+            if (!outputCols.isEmpty()) {
                 s = new ProjectScan(s, outputCols);
+                planNode = node("Project", mapOf("cols", String.join(",", outputCols)), planNode);
+            }
 
             if (ast.having != null) {
                 String outName = toAggOutName(ast.having.func, ast.having.arg);
@@ -151,6 +169,7 @@ public final class Planner {
                     default -> throw new IllegalArgumentException("unsupported HAVING op: " + ast.having.op);
                 };
                 s = new app.query.HavingScan(s, outName, op, ast.having.rhs);
+                planNode = node("Having", mapOf("pred", describeHaving(ast.having)), planNode);
             }
         } else {
             boolean hasStar = ast.projections.stream()
@@ -162,14 +181,15 @@ public final class Planner {
                         outputCols.add(stripQualifier(c.name));
                     }
                 }
-                if (!outputCols.isEmpty())
+                if (!outputCols.isEmpty()) {
                     s = new ProjectScan(s, outputCols);
+                    planNode = node("Project", mapOf("cols", String.join(",", outputCols)), planNode);
+                }
             } else {
                 outputCols.clear();
             }
         }
 
-        // DISTINCT / ORDER BY / LIMIT（既存そのまま）
         if (ast.distinct) {
             List<String> cols;
             if (outputCols.isEmpty()) {
@@ -180,17 +200,34 @@ public final class Planner {
             } else
                 cols = outputCols;
             s = new app.query.DistinctScan(s, cols);
+            planNode = node("Distinct", mapOf("cols", String.join(",", cols)), planNode);
         }
 
         if (ast.orderBy != null && !orderHandled) {
             String fld = stripQualifier(ast.orderBy.field);
             List<String> carry = outputCols.isEmpty() ? List.of(fld) : outputCols;
             s = new OrderByScan(s, fld, ast.orderBy.asc, carry);
+            planNode = node("Sort", mapOf("keys", fld, "order", ast.orderBy.asc ? "ASC" : "DESC"), planNode);
         }
 
-        if (ast.limit != null && !limitHandled)
+        if (ast.limit != null && !limitHandled) {
             s = new LimitScan(s, ast.limit);
-        return s;
+            planNode = node("Limit", mapOf("k", Integer.toString(ast.limit)), planNode);
+        }
+
+        return new PreparedPlan(s, planNode);
+    }
+
+    public Scan plan(Ast.SelectStmt ast) {
+        return prepare(ast).scan();
+    }
+
+    public String explain(Ast.SelectStmt ast) {
+        return PlanPrinter.print(prepare(ast).plan());
+    }
+
+    public String explain(Ast.ExplainStmt stmt) {
+        return explain(stmt.select);
     }
 
     public int executeInsert(Ast.InsertStmt stmt) {
@@ -333,9 +370,10 @@ public final class Planner {
         boolean lowInclusive = true;
         Integer highValue = null;
         boolean highInclusive = true;
-        Integer eqValue = null;
+    Integer eqValue = null;
 
-        List<Predicate> residualPredicates = new ArrayList<>();
+    List<Predicate> residualPredicates = new ArrayList<>();
+    List<String> residualDescriptions = new ArrayList<>();
 
         List<Ast.Predicate> wherePredicates = (ast.where == null) ? List.of() : ast.where;
         for (Ast.Predicate predicate : wherePredicates) {
@@ -378,6 +416,7 @@ public final class Planner {
 
             try {
                 residualPredicates.add(toPredicate(predicate));
+                residualDescriptions.add(predicateToString(predicate));
             } catch (IllegalArgumentException e) {
                 return null;
             }
@@ -416,10 +455,25 @@ public final class Planner {
                 residualPredicates,
                 limit);
 
-        System.out.println("[PLAN] order-by via BTree index on " + ast.from.table + "." + orderField
-                + (ast.limit != null ? " (limit " + ast.limit + ")" : ""));
+    System.out.println("[PLAN] order-by via BTree index on " + ast.from.table + "." + orderField
+        + (ast.limit != null ? " (limit " + ast.limit + ")" : ""));
 
-        return new IndexOrderPlan(scan, ast.limit != null);
+    Map<String, String> scanProps = mapOf(
+        "table", ast.from.table,
+        "index", indexNameOpt.get(),
+        "order", "ASC");
+    if (ast.limit != null)
+        scanProps.put("limit", Integer.toString(ast.limit));
+    PlanNode rangeNode = makeRangeNode(lowValue, lowInclusive, highValue, highInclusive);
+    PlanNode tail = rangeNode;
+    if (!residualDescriptions.isEmpty()) {
+        PlanNode filterNode = node("Filter", mapOf("pred", String.join(" AND ", residualDescriptions)),
+            tail);
+        tail = filterNode;
+    }
+    PlanNode plan = node("IndexOrderScan", scanProps, tail);
+
+    return new IndexOrderPlan(scan, ast.limit != null, plan);
     }
 
     private static String stripQualifier(String name) {
@@ -474,7 +528,11 @@ public final class Planner {
             if (eqVal != null) {
                 System.out.println("[PLAN] where using BTree index (EQ) on " + tableName + "." + colName);
                 Scan scan = new BTreeEqScan(fm, mdm, tableName, idxName, eqVal);
-                return new IndexPlanResult(scan, predicate);
+                PlanNode plan = node("IndexEqScan", mapOf(
+                        "table", tableName,
+                        "index", idxName,
+                        "key", Integer.toString(eqVal)));
+                return new IndexPlanResult(scan, predicate, plan);
             }
 
             RangeBound range = extractRange(predicate);
@@ -489,7 +547,16 @@ public final class Planner {
                     ts.beforeFirst();
                     Scan scan = new BTreeRangeScan(ts, idx, range.loKey, range.loInclusive, range.hiKey,
                             range.hiInclusive);
-                    return new IndexPlanResult(scan, predicate);
+            PlanNode rangeNode = makeRangeNode(
+                range.loKey != null ? range.loKey.asInt() : null,
+                range.loInclusive,
+                range.hiKey != null ? range.hiKey.asInt() : null,
+                range.hiInclusive);
+            PlanNode plan = node("IndexRangeScan", mapOf(
+                "table", tableName,
+                "index", idxName),
+                rangeNode);
+            return new IndexPlanResult(scan, predicate, plan);
                 } catch (Exception e) {
                     throw new RuntimeException("Failed to build BTree range plan for "
                             + tableName + "." + colName, e);
@@ -536,6 +603,105 @@ public final class Planner {
         return SearchKey.ofInt(v);
     }
 
+    private static Map<String, String> mapOf(Object... keyValues) {
+        LinkedHashMap<String, String> map = new LinkedHashMap<>();
+        if (keyValues == null)
+            return map;
+        if (keyValues.length % 2 != 0)
+            throw new IllegalArgumentException("mapOf requires even number of arguments");
+        for (int i = 0; i < keyValues.length; i += 2) {
+            Object key = keyValues[i];
+            Object value = keyValues[i + 1];
+            if (key == null || value == null)
+                continue;
+            map.put(key.toString(), value.toString());
+        }
+        return map;
+    }
+
+    private static PlanNode node(String name, Map<String, String> props, PlanNode... children) {
+        List<PlanNode> list = new ArrayList<>();
+        if (children != null) {
+            for (PlanNode child : children) {
+                if (child != null)
+                    list.add(child);
+            }
+        }
+        return new PlanNode(name, props, list);
+    }
+
+    private static PlanNode makeRangeNode(Integer lowValue, boolean lowInclusive, Integer highValue, boolean highInclusive) {
+        if (lowValue == null && highValue == null)
+            return null;
+        Map<String, String> props = mapOf(
+                "lo", formatBound(lowValue, "-"),
+                "hi", formatBound(highValue, "+"));
+        if (lowValue != null && !lowInclusive)
+            props.put("loInclusive", "false");
+        if (highValue != null && !highInclusive)
+            props.put("hiInclusive", "false");
+        return node("Range", props);
+    }
+
+    private static String formatBound(Integer value, String whenNull) {
+        return value == null ? whenNull : value.toString();
+    }
+
+    private String predicateToString(Ast.Predicate predicate) {
+        if (predicate == null)
+            return "";
+        if (predicate instanceof Ast.PredicateBetween between) {
+            return stripQualifier(((Ast.Expr.Col) between.left).name)
+                    + " BETWEEN " + between.low + " AND " + between.high;
+        }
+        String left = exprToString(predicate.left);
+        if (predicate instanceof Ast.PredicateCompare compare) {
+            return left + compare.op + exprToString(compare.right);
+        }
+        if (predicate.right instanceof Ast.Expr.I ri)
+            return left + "=" + ri.v;
+        if (predicate.right instanceof Ast.Expr.S rs)
+            return left + "='" + rs.v + "'";
+        if (predicate.right instanceof Ast.Expr.Col rc)
+            return left + "=" + exprToString(rc);
+        return left;
+    }
+
+    private String exprToString(Ast.Expr expr) {
+        if (expr == null)
+            return "";
+        if (expr instanceof Ast.Expr.Col col)
+            return stripQualifier(col.name);
+        if (expr instanceof Ast.Expr.I i)
+            return Integer.toString(i.v);
+        if (expr instanceof Ast.Expr.S s)
+            return "'" + s.v + "'";
+        return "?";
+    }
+
+    private String describeHaving(Ast.Having having) {
+        String arg = having.arg == null ? "*" : stripQualifier(having.arg);
+        return having.func + "(" + arg + ")" + having.op + having.rhs;
+    }
+
+    public static final class PreparedPlan {
+        private final Scan scan;
+        private final PlanNode plan;
+
+        PreparedPlan(Scan scan, PlanNode plan) {
+            this.scan = Objects.requireNonNull(scan);
+            this.plan = Objects.requireNonNull(plan);
+        }
+
+        public Scan scan() {
+            return scan;
+        }
+
+        public PlanNode plan() {
+            return plan;
+        }
+    }
+
     private static final class RangeBound {
         final SearchKey loKey;
         final boolean loInclusive;
@@ -553,20 +719,24 @@ public final class Planner {
     private static final class IndexPlanResult {
         final Scan scan;
         final Ast.Predicate predicate;
+        final PlanNode planNode;
 
-        IndexPlanResult(Scan scan, Ast.Predicate predicate) {
+        IndexPlanResult(Scan scan, Ast.Predicate predicate, PlanNode planNode) {
             this.scan = scan;
             this.predicate = predicate;
+            this.planNode = planNode;
         }
     }
 
     private static final class IndexOrderPlan {
         final Scan scan;
         final boolean limitHandled;
+        final PlanNode planNode;
 
-        IndexOrderPlan(Scan scan, boolean limitHandled) {
+        IndexOrderPlan(Scan scan, boolean limitHandled, PlanNode planNode) {
             this.scan = scan;
             this.limitHandled = limitHandled;
+            this.planNode = planNode;
         }
     }
 

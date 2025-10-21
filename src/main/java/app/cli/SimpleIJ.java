@@ -204,6 +204,17 @@ public class SimpleIJ {
             return;
         }
 
+        if (stmt instanceof Ast.ExplainStmt explain) {
+            try {
+                String planText = planner.explain(explain);
+                if (planText != null && !planText.isEmpty())
+                    System.out.println(planText);
+            } catch (Exception e) {
+                System.out.println("Exec ERROR: " + e.getMessage());
+            }
+            return;
+        }
+
         if (stmt instanceof Ast.InsertStmt insert) {
             try {
                 int rows = planner.executeInsert(insert);

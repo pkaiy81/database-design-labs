@@ -187,6 +187,9 @@ public final class Lexer {
             case "DESC":
                 type = TokenType.DESC;
                 break;
+            case "EXPLAIN":
+                type = TokenType.EXPLAIN;
+                break;
             case "INSERT":
                 type = TokenType.INSERT;
                 break;
