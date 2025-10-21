@@ -3,7 +3,7 @@ package app.sql;
 import java.util.*;
 
 public final class Ast {
-    public sealed interface Statement permits SelectStmt, InsertStmt, UpdateStmt, DeleteStmt, ExplainStmt {
+    public sealed interface Statement permits SelectStmt, InsertStmt, UpdateStmt, DeleteStmt, ExplainStmt, DropIndexStmt {
     }
 
     public static abstract class SelectItem {
@@ -94,6 +94,14 @@ public final class Ast {
 
         public ExplainStmt(SelectStmt select) {
             this.select = Objects.requireNonNull(select);
+        }
+    }
+
+    public static final class DropIndexStmt implements Statement {
+        public final String indexName;
+
+        public DropIndexStmt(String indexName) {
+            this.indexName = Objects.requireNonNull(indexName);
         }
     }
 

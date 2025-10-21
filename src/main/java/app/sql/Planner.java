@@ -308,6 +308,10 @@ public final class Planner {
         return deleted;
     }
 
+    public boolean executeDropIndex(Ast.DropIndexStmt stmt) {
+        return mdm.dropIndex(stmt.indexName);
+    }
+
     private int expectIntLiteral(Ast.Expr expr, String table, String column) {
         if (expr instanceof Ast.Expr.I i)
             return i.v;

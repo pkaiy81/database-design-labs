@@ -245,6 +245,20 @@ public class SimpleIJ {
             return;
         }
 
+        if (stmt instanceof Ast.DropIndexStmt drop) {
+            try {
+                boolean removed = planner.executeDropIndex(drop);
+                if (removed) {
+                    System.out.println("Index dropped: " + drop.indexName);
+                } else {
+                    System.out.println("Error: index not found: " + drop.indexName);
+                }
+            } catch (Exception e) {
+                System.out.println("Exec ERROR: " + e.getMessage());
+            }
+            return;
+        }
+
         System.out.println("Unsupported statement.");
     }
 

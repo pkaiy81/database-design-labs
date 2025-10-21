@@ -208,6 +208,9 @@ public final class Lexer {
             case "DELETE":
                 type = TokenType.DELETE;
                 break;
+            case "DROP":
+                type = TokenType.DROP;
+                break;
             case "CREATE":
                 type = TokenType.CREATE;
                 break;
