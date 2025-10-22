@@ -166,41 +166,81 @@ public class SimpleIJ {
             return;
         }
 
-        Ast.SelectStmt ast;
+        Ast.Statement stmt;
         try {
-            ast = new Parser(sql).parseSelect();
+            stmt = new Parser(sql).parseStatement();
         } catch (Exception e) {
             System.out.println("Parse ERROR: " + e.getMessage());
             return;
         }
 
-        // 予定カラムを推定（表示用）
-        List<String> cols;
-        try {
-            cols = resolveOutputColumns(ast);
-        } catch (Exception e) {
-            System.out.println("Resolve-cols WARN: " + e.getMessage());
-            cols = List.of("id", "name", "student_id", "score", "count", "sum_score", "avg_score", "min_score",
-                    "max_score");
+        if (stmt instanceof Ast.SelectStmt select) {
+            // 予定カラムを推定（表示用）
+            List<String> cols;
+            try {
+                cols = resolveOutputColumns(select);
+            } catch (Exception e) {
+                System.out.println("Resolve-cols WARN: " + e.getMessage());
+                cols = List.of("id", "name", "student_id", "score", "count", "sum_score", "avg_score",
+                        "min_score", "max_score");
+            }
+
+            try (Scan s = planner.plan(select)) {
+                s.beforeFirst();
+                TablePrinter tp = new TablePrinter(cols);
+                int rows = 0;
+                while (s.next()) {
+                    List<String> out = new ArrayList<>(cols.size());
+                    for (String c : cols)
+                        out.add(read(s, c));
+                    tp.addRow(out);
+                    rows++;
+                }
+                tp.print();
+                if (rows == 0)
+                    System.out.println("(0 rows)");
+            } catch (Exception e) {
+                System.out.println("Exec ERROR: " + e.getMessage());
+            }
+            return;
         }
 
-        try (Scan s = planner.plan(sql)) {
-            s.beforeFirst();
-            TablePrinter tp = new TablePrinter(cols);
-            int rows = 0;
-            while (s.next()) {
-                List<String> out = new ArrayList<>(cols.size());
-                for (String c : cols)
-                    out.add(read(s, c));
-                tp.addRow(out);
-                rows++;
+        if (stmt instanceof Ast.InsertStmt insert) {
+            try {
+                int rows = planner.executeInsert(insert);
+                printRowResult("inserted", rows);
+            } catch (Exception e) {
+                System.out.println("Exec ERROR: " + e.getMessage());
             }
-            tp.print();
-            if (rows == 0)
-                System.out.println("(0 rows)");
-        } catch (Exception e) {
-            System.out.println("Exec ERROR: " + e.getMessage());
+            return;
         }
+
+        if (stmt instanceof Ast.UpdateStmt update) {
+            try {
+                int rows = planner.executeUpdate(update);
+                printRowResult("updated", rows);
+            } catch (Exception e) {
+                System.out.println("Exec ERROR: " + e.getMessage());
+            }
+            return;
+        }
+
+        if (stmt instanceof Ast.DeleteStmt delete) {
+            try {
+                int rows = planner.executeDelete(delete);
+                printRowResult("deleted", rows);
+            } catch (Exception e) {
+                System.out.println("Exec ERROR: " + e.getMessage());
+            }
+            return;
+        }
+
+        System.out.println("Unsupported statement.");
+    }
+
+    private static void printRowResult(String action, int rows) {
+        String noun = rows == 1 ? " row " : " rows ";
+        System.out.println(rows + noun + action + ".");
     }
 
     /** 表示カラム推定: SELECT list / 集約 / GROUP BY / SELECT * (単表/単純JOINのみ) を最小対応 */
@@ -221,7 +261,7 @@ public class SimpleIJ {
             // Column と Agg が混在している場合、Column 側も足す
             for (Ast.SelectItem it : ast.projections) {
                 if (it instanceof Ast.SelectItem.Column c) {
-                    String n = strip(((Ast.SelectItem.Column) it).name);
+                    String n = strip(c.name);
                     if (!"*".equals(n) && !cols.contains(n))
                         cols.add(n);
                 }

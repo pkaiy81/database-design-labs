@@ -3,6 +3,9 @@ package app.sql;
 import java.util.*;
 
 public final class Ast {
+    public sealed interface Statement permits SelectStmt, InsertStmt, UpdateStmt, DeleteStmt {
+    }
+
     public static abstract class SelectItem {
         public static final class Column extends SelectItem {
             public final String name;
@@ -49,7 +52,7 @@ public final class Ast {
         }
     }
 
-    public static final class SelectStmt {
+    public static final class SelectStmt implements Statement {
         public final boolean distinct;
         public final List<SelectItem> projections;
         public final From from;
@@ -71,6 +74,50 @@ public final class Ast {
             this.having = having;
             this.orderBy = orderBy;
             this.limit = limit;
+        }
+    }
+
+    public static final class InsertStmt implements Statement {
+        public final String table;
+        public final List<String> columns;
+        public final List<Expr> values;
+
+        public InsertStmt(String table, List<String> columns, List<Expr> values) {
+            this.table = table;
+            this.columns = List.copyOf(columns);
+            this.values = List.copyOf(values);
+        }
+    }
+
+    public static final class UpdateStmt implements Statement {
+        public final String table;
+        public final List<Assignment> assignments;
+        public final List<Predicate> where;
+
+        public UpdateStmt(String table, List<Assignment> assignments, List<Predicate> where) {
+            this.table = table;
+            this.assignments = List.copyOf(assignments);
+            this.where = List.copyOf(where);
+        }
+
+        public static final class Assignment {
+            public final String column;
+            public final Expr value;
+
+            public Assignment(String column, Expr value) {
+                this.column = column;
+                this.value = value;
+            }
+        }
+    }
+
+    public static final class DeleteStmt implements Statement {
+        public final String table;
+        public final List<Predicate> where;
+
+        public DeleteStmt(String table, List<Predicate> where) {
+            this.table = table;
+            this.where = List.copyOf(where);
         }
     }
 
