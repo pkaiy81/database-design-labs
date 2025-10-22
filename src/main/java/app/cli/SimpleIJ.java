@@ -176,13 +176,12 @@ public class SimpleIJ {
 
         if (stmt instanceof Ast.SelectStmt select) {
             // 予定カラムを推定（表示用）
-            List<String> cols;
+            List<ColumnDisplay> cols;
             try {
                 cols = resolveOutputColumns(select);
             } catch (Exception e) {
-                System.out.println("Resolve-cols WARN: " + e.getMessage());
-                cols = List.of("id", "name", "student_id", "score", "count", "sum_score", "avg_score",
-                        "min_score", "max_score");
+                System.out.println("Resolve-cols ERROR: " + e.getMessage());
+                return;
             }
 
             try (Scan s = planner.plan(select)) {
@@ -191,8 +190,8 @@ public class SimpleIJ {
                 int rows = 0;
                 while (s.next()) {
                     List<String> out = new ArrayList<>(cols.size());
-                    for (String c : cols)
-                        out.add(read(s, c));
+                    for (ColumnDisplay col : cols)
+                        out.add(read(s, col));
                     tp.addRow(out);
                     rows++;
                 }
@@ -244,7 +243,7 @@ public class SimpleIJ {
     }
 
     /** 表示カラム推定: SELECT list / 集約 / GROUP BY / SELECT * (単表/単純JOINのみ) を最小対応 */
-    private List<String> resolveOutputColumns(Ast.SelectStmt ast) {
+    private List<String> resolveOutputColumnNames(Ast.SelectStmt ast) {
         // 1) 集約 or GROUP BY があれば、前章実装の命名規則に合わせる
         boolean hasAgg = ast.projections.stream().anyMatch(p -> p instanceof Ast.SelectItem.Agg);
         if (hasAgg || ast.groupBy != null) {
@@ -300,8 +299,67 @@ public class SimpleIJ {
         }
 
         // 4) フォールバック（既知の代表カラム）
-        return List.of("id", "name", "student_id", "score", "count", "sum_score", "avg_score", "min_score",
-                "max_score");
+    return List.of("id", "name", "student_id", "score", "count", "sum_score", "avg_score", "min_score",
+        "max_score");
+    }
+
+    private List<ColumnDisplay> resolveOutputColumns(Ast.SelectStmt ast) {
+        List<String> names = resolveOutputColumnNames(ast);
+        List<ColumnDisplay> cols = new ArrayList<>(names.size());
+        for (String name : names)
+            cols.add(new ColumnDisplay(name, deduceColumnKind(name, ast)));
+        return cols;
+    }
+
+    private ColumnKind deduceColumnKind(String columnName, Ast.SelectStmt ast) {
+        // Aggregate outputs default to INT (including COUNT, SUM, AVG, MIN, MAX)
+        String lower = columnName.toLowerCase(Locale.ROOT);
+        if (lower.startsWith("count") || lower.startsWith("sum") || lower.startsWith("avg")
+                || lower.startsWith("min") || lower.startsWith("max"))
+            return ColumnKind.INT;
+
+        String qualifier = null;
+        String field = columnName;
+        int dot = columnName.indexOf('.');
+        if (dot >= 0) {
+            qualifier = columnName.substring(0, dot);
+            field = columnName.substring(dot + 1);
+        }
+        field = strip(field);
+
+        if (qualifier != null) {
+            if (tableHasField(qualifier, field))
+                return kindFromField(qualifier, field);
+        } else {
+            if (tableHasField(ast.from.table, field))
+                return kindFromField(ast.from.table, field);
+            for (Ast.Join join : ast.joins) {
+                if (tableHasField(join.table, field))
+                    return kindFromField(join.table, field);
+            }
+        }
+
+        throw new IllegalArgumentException("Unknown column: " + columnName);
+    }
+
+    private boolean tableHasField(String table, String field) {
+        try {
+            return mdm.getLayout(table).schema().hasField(field);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private ColumnKind kindFromField(String table, String field) {
+        try {
+            Schema schema = mdm.getLayout(table).schema();
+            return switch (schema.fieldType(field)) {
+                case INT -> ColumnKind.INT;
+                case STRING -> ColumnKind.STRING;
+            };
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Unknown column: " + table + "." + field, e);
+        }
     }
 
     private static List<String> schemaFields(Schema s) {
@@ -316,16 +374,37 @@ public class SimpleIJ {
         }
     }
 
-    private static String read(Scan s, String field) {
+    private static String read(Scan s, ColumnDisplay column) {
+        return switch (column.kind()) {
+            case STRING -> readString(s, column.name());
+            case INT -> readInt(s, column.name());
+        };
+    }
+
+    private static String readString(Scan s, String field) {
+        try {
+            String v = s.getString(field);
+            if (v != null)
+                return v;
+        } catch (Exception ignore) {
+        }
+        return readInt(s, field);
+    }
+
+    private static String readInt(Scan s, String field) {
         try {
             return Integer.toString(s.getInt(field));
         } catch (Exception ignore) {
         }
-        try {
-            return s.getString(field);
-        } catch (Exception ignore) {
-        }
         return "-";
+    }
+
+    private enum ColumnKind {
+        INT,
+        STRING
+    }
+
+    private record ColumnDisplay(String name, ColumnKind kind) {
     }
 
     private static String strip(String name) {
@@ -358,15 +437,24 @@ public class SimpleIJ {
             TableFile f = new TableFile(fm, t + ".tbl", l);
             try (TableScan ts = new TableScan(fm, f)) {
                 ts.enableIndexMaintenance(mdm, t);
-                ts.insert();
-                ts.setInt("id", 1);
-                ts.setString("name", "Ada");
-                ts.insert();
-                ts.setInt("id", 2);
-                ts.setString("name", "Ada");
-                ts.insert();
-                ts.setInt("id", 3);
-                ts.setString("name", "Turing");
+                String[] baseNames = {
+                        "Ada", "Alan", "Grace", "Donald", "Edsger",
+                        "Barbara", "Ken", "Margaret", "Linus", "Yukihiro"
+                };
+                String[] cohorts = { "A", "B", "C", "D", "E" };
+                int id = 1;
+                for (String base : baseNames) {
+                    for (String cohort : cohorts) {
+                        ts.insert();
+                        ts.setInt("id", id++);
+                        String label = cohort.equals("A") ? base : base + " " + cohort;
+                        ts.setString("name", label);
+                    }
+                    // intentional duplicates for frequency tests
+                    ts.insert();
+                    ts.setInt("id", id++);
+                    ts.setString("name", base);
+                }
             }
         }
         // scores(student_id:int, score:int)
@@ -378,21 +466,19 @@ public class SimpleIJ {
             TableFile f = new TableFile(fm, t + ".tbl", l);
             try (TableScan ts = new TableScan(fm, f)) {
                 ts.enableIndexMaintenance(mdm, t);
-                ts.insert();
-                ts.setInt("student_id", 1);
-                ts.setInt("score", 70);
-                ts.insert();
-                ts.setInt("student_id", 1);
-                ts.setInt("score", 90);
-                ts.insert();
-                ts.setInt("student_id", 2);
-                ts.setInt("score", 60);
-                ts.insert();
-                ts.setInt("student_id", 2);
-                ts.setInt("score", 80);
-                ts.insert();
-                ts.setInt("student_id", 2);
-                ts.setInt("score", 100);
+                int studentId = 1;
+                for (int batch = 0; batch < 10; batch++) {
+                    for (int member = 0; member < 6; member++) {
+                        int sid = studentId++;
+                        int base = 55 + (batch * 3) + (member * 2);
+                        for (int attempt = 0; attempt < 3; attempt++) {
+                            ts.insert();
+                            ts.setInt("student_id", sid);
+                            int score = base + attempt * 7 + (sid % 5);
+                            ts.setInt("score", Math.min(score, 100));
+                        }
+                    }
+                }
             }
         }
     }
@@ -433,8 +519,8 @@ public class SimpleIJ {
         private final List<String> headers;
         private final List<List<String>> rows = new ArrayList<>();
 
-        TablePrinter(List<String> headers) {
-            this.headers = headers;
+        TablePrinter(List<ColumnDisplay> columns) {
+            this.headers = columns.stream().map(ColumnDisplay::name).collect(Collectors.toList());
         }
 
         void addRow(List<String> r) {

@@ -40,7 +40,23 @@ public final class Planner {
         // === FROM ===
         Layout baseLayout = mdm.getLayout(ast.from.table);
         TableFile baseTf = new TableFile(fm, ast.from.table + ".tbl", baseLayout);
-        Scan s = new TableScan(fm, baseTf);
+
+        boolean skipWhereProcessing = false;
+        boolean orderHandled = false;
+        boolean limitHandled = false;
+
+        IndexOrderPlan indexOrderPlan = tryPlanIndexOrder(ast, baseLayout, baseTf);
+
+        Scan s;
+        boolean usedIndexForWhere = indexOrderPlan != null;
+        if (indexOrderPlan != null) {
+            s = indexOrderPlan.scan;
+            skipWhereProcessing = true;
+            orderHandled = true;
+            limitHandled = indexOrderPlan.limitHandled;
+        } else {
+            s = new TableScan(fm, baseTf);
+        }
 
         // === JOIN（既存の HashIndex 経路は温存）===
         for (Ast.Join j : ast.joins) {
@@ -74,28 +90,29 @@ public final class Planner {
 
         // === WHERE ===
         // 単一テーブルの場合は B-Tree インデックス最適化を優先的に試す
-        boolean usedIndexForWhere = false;
         Ast.Predicate predicateHandledByIndex = null;
-        if (ast.joins.isEmpty()) {
-            IndexPlanResult indexPlan = planSingleTableWithPossibleIndex(ast.from.table, ast.where);
-            if (indexPlan != null) {
-                s = indexPlan.scan;
-                predicateHandledByIndex = indexPlan.predicate;
-                usedIndexForWhere = true;
+        if (!skipWhereProcessing) {
+            if (ast.joins.isEmpty()) {
+                IndexPlanResult indexPlan = planSingleTableWithPossibleIndex(ast.from.table, ast.where);
+                if (indexPlan != null) {
+                    s = indexPlan.scan;
+                    predicateHandledByIndex = indexPlan.predicate;
+                    usedIndexForWhere = true;
+                }
+                for (Ast.Predicate p : ast.where) {
+                    if (p == predicateHandledByIndex)
+                        continue;
+                    // （BTree なし or 対応外）→ 従来どおりフィルタ
+                    s = new SelectScan(s, toPredicate(p));
+                }
+            } else {
+                for (Ast.Predicate p : ast.where) {
+                    s = new SelectScan(s, toPredicate(p));
+                }
             }
-            for (Ast.Predicate p : ast.where) {
-                if (p == predicateHandledByIndex)
-                    continue;
-                // （BTree なし or 対応外）→ 従来どおりフィルタ
-                s = new SelectScan(s, toPredicate(p));
-            }
-        } else {
-            for (Ast.Predicate p : ast.where) {
-                s = new SelectScan(s, toPredicate(p));
-            }
+            if (!usedIndexForWhere && ast.where != null && !ast.where.isEmpty())
+                System.out.println("[PLAN] where via scan filter");
         }
-        if (!usedIndexForWhere && ast.where != null && !ast.where.isEmpty())
-            System.out.println("[PLAN] where via scan filter");
 
         // === GROUP BY / AGGREGATION ===（既存そのまま）
         List<String> outputCols = new ArrayList<>();
@@ -165,13 +182,13 @@ public final class Planner {
             s = new app.query.DistinctScan(s, cols);
         }
 
-        if (ast.orderBy != null) {
+        if (ast.orderBy != null && !orderHandled) {
             String fld = stripQualifier(ast.orderBy.field);
             List<String> carry = outputCols.isEmpty() ? List.of(fld) : outputCols;
             s = new OrderByScan(s, fld, ast.orderBy.asc, carry);
         }
 
-        if (ast.limit != null)
+        if (ast.limit != null && !limitHandled)
             s = new LimitScan(s, ast.limit);
         return s;
     }
@@ -287,6 +304,122 @@ public final class Planner {
                 return false;
         }
         return true;
+    }
+
+    private IndexOrderPlan tryPlanIndexOrder(Ast.SelectStmt ast, Layout baseLayout, TableFile baseTf) {
+        if (ast.orderBy == null || !ast.orderBy.asc)
+            return null;
+        if (!ast.joins.isEmpty())
+            return null;
+        if (ast.distinct || ast.groupBy != null || ast.having != null)
+            return null;
+        boolean hasAgg = ast.projections.stream().anyMatch(it -> it instanceof Ast.SelectItem.Agg);
+        if (hasAgg)
+            return null;
+
+        String orderField = stripQualifier(ast.orderBy.field);
+        if (orderField == null)
+            return null;
+        if (!baseLayout.schema().hasField(orderField))
+            return null;
+        if (baseLayout.schema().fieldType(orderField) != FieldType.INT)
+            return null;
+
+        Optional<String> indexNameOpt = mdm.findIndexOn(ast.from.table, orderField);
+        if (indexNameOpt.isEmpty())
+            return null;
+
+        Integer lowValue = null;
+        boolean lowInclusive = true;
+        Integer highValue = null;
+        boolean highInclusive = true;
+        Integer eqValue = null;
+
+        List<Predicate> residualPredicates = new ArrayList<>();
+
+        List<Ast.Predicate> wherePredicates = (ast.where == null) ? List.of() : ast.where;
+        for (Ast.Predicate predicate : wherePredicates) {
+            String column = extractColumn(predicate);
+            boolean onOrderColumn = column != null && stripQualifier(column).equals(orderField);
+            if (onOrderColumn) {
+                Integer eqVal = extractEqValue(predicate);
+                if (eqVal != null) {
+                    if (eqValue != null && !eqValue.equals(eqVal))
+                        return null;
+                    eqValue = eqVal;
+                    continue;
+                }
+
+                RangeBound range = extractRange(predicate);
+                if (range != null) {
+                    if (range.loKey != null) {
+                        int candidate = range.loKey.asInt();
+                        if (lowValue == null || candidate > lowValue) {
+                            lowValue = candidate;
+                            lowInclusive = range.loInclusive;
+                        } else if (candidate == lowValue) {
+                            lowInclusive = lowInclusive && range.loInclusive;
+                        }
+                    }
+                    if (range.hiKey != null) {
+                        int candidate = range.hiKey.asInt();
+                        if (highValue == null || candidate < highValue) {
+                            highValue = candidate;
+                            highInclusive = range.hiInclusive;
+                        } else if (candidate == highValue) {
+                            highInclusive = highInclusive && range.hiInclusive;
+                        }
+                    }
+                    continue;
+                }
+
+                return null;
+            }
+
+            try {
+                residualPredicates.add(toPredicate(predicate));
+            } catch (IllegalArgumentException e) {
+                return null;
+            }
+        }
+
+        if (eqValue != null) {
+            if (lowValue != null && (eqValue < lowValue || (eqValue.equals(lowValue) && !lowInclusive)))
+                return null;
+            if (highValue != null && (eqValue > highValue || (eqValue.equals(highValue) && !highInclusive)))
+                return null;
+            lowValue = eqValue;
+            highValue = eqValue;
+            lowInclusive = true;
+            highInclusive = true;
+        }
+
+        if (lowValue != null && highValue != null) {
+            if (lowValue > highValue)
+                return null;
+            if (lowValue.equals(highValue) && (!lowInclusive || !highInclusive))
+                return null;
+        }
+
+        SearchKey lowKey = (lowValue != null) ? keyInt(lowValue) : null;
+        SearchKey highKey = (highValue != null) ? keyInt(highValue) : null;
+
+        int limit = (ast.limit != null) ? Math.max(0, ast.limit) : Integer.MAX_VALUE;
+        IndexOrderScan scan = new IndexOrderScan(
+                fm,
+                baseTf,
+                indexNameOpt.get(),
+                lowKey,
+                lowInclusive,
+                highKey,
+                highInclusive,
+                residualPredicates,
+                limit);
+
+        System.out.println("[PLAN] order-by via BTree index on " + ast.from.table + "." + orderField
+                + (ast.limit != null ? " (limit " + ast.limit + ")" : ""));
+
+        return new IndexOrderPlan(scan, ast.limit != null);
     }
 
     private static String stripQualifier(String name) {
@@ -424,6 +557,16 @@ public final class Planner {
         IndexPlanResult(Scan scan, Ast.Predicate predicate) {
             this.scan = scan;
             this.predicate = predicate;
+        }
+    }
+
+    private static final class IndexOrderPlan {
+        final Scan scan;
+        final boolean limitHandled;
+
+        IndexOrderPlan(Scan scan, boolean limitHandled) {
+            this.scan = scan;
+            this.limitHandled = limitHandled;
         }
     }
 
