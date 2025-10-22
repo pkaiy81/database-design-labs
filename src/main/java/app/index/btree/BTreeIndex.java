@@ -209,4 +209,14 @@ public final class BTreeIndex implements Index {
     public void close() {
         closeLeafIfAny();
     }
+
+    public static String physicalName(String indexName) {
+        return indexName;
+    }
+
+    public static boolean drop(FileMgr fm, String indexName) {
+        boolean removed = fm.deleteFileIfExists(physicalName(indexName));
+        boolean removedWithExt = fm.deleteFileIfExists(indexName + ".idx");
+        return removed || removedWithExt;
+    }
 }

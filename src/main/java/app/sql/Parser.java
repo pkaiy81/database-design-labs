@@ -16,11 +16,20 @@ public final class Parser {
         return switch (lx.type()) {
             case SELECT -> parseSelect();
             case EXPLAIN -> parseExplain();
+            case DROP -> parseDropIndex();
             case INSERT -> parseInsert();
             case UPDATE -> parseUpdate();
             case DELETE -> parseDelete();
             default -> throw err("unsupported statement start: " + lx.type());
         };
+    }
+
+    private Ast.DropIndexStmt parseDropIndex() {
+        expect(DROP);
+        expect(INDEX);
+        String name = parseIdentQualified();
+        expect(EOF);
+        return new Ast.DropIndexStmt(name);
     }
 
     private Ast.ExplainStmt parseExplain() {

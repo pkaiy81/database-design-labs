@@ -1,5 +1,6 @@
 package app.metadata;
 
+import app.index.btree.BTreeIndex;
 import app.record.*;
 import app.storage.FileMgr;
 
@@ -176,17 +177,29 @@ public final class MetadataManager {
      * 途中失敗時のロールバック用：createIndex で登録した内容を取り消す.
      * indexName をキーに idxcat から当該エントリを削除する.
      */
-    public void dropIndex(String indexName) {
-        idxcatLayout.schema();
+    public boolean dropIndex(String indexName) {
+        boolean removed = false;
         try (TableScan s = new TableScan(fm, idxcat)) {
             s.beforeFirst();
             while (s.next()) {
                 if (indexName.equals(s.getString("iname"))) {
                     s.delete();
+                    removed = true;
                     break;
                 }
             }
         }
+        if (!removed)
+            return false;
+
+        try {
+            if (!BTreeIndex.drop(fm, indexName)) {
+                // ベストエフォート削除。既に無い場合は問題なし。
+            }
+        } catch (Exception e) {
+            System.err.println("[WARN] Failed to remove index file for " + indexName + ": " + e.getMessage());
+        }
+        return true;
     }
 
     public java.util.List<String> getIndexesOn(String tname, String fname) {

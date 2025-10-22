@@ -8,6 +8,7 @@ public enum TokenType {
     INSERT, INTO, VALUES,
     UPDATE, SET,
     DELETE,
+    DROP,
     ORDER, BY, LIMIT, ASC, DESC,
     EXPLAIN,
     CREATE, INDEX,
