@@ -15,11 +15,18 @@ public final class Parser {
     public Ast.Statement parseStatement() {
         return switch (lx.type()) {
             case SELECT -> parseSelect();
+            case EXPLAIN -> parseExplain();
             case INSERT -> parseInsert();
             case UPDATE -> parseUpdate();
             case DELETE -> parseDelete();
             default -> throw err("unsupported statement start: " + lx.type());
         };
+    }
+
+    private Ast.ExplainStmt parseExplain() {
+        expect(EXPLAIN);
+        Ast.SelectStmt select = parseSelect();
+        return new Ast.ExplainStmt(select);
     }
 
     public Ast.CreateIndexStmt parseCreateIndex() {

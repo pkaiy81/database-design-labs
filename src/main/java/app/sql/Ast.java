@@ -3,7 +3,7 @@ package app.sql;
 import java.util.*;
 
 public final class Ast {
-    public sealed interface Statement permits SelectStmt, InsertStmt, UpdateStmt, DeleteStmt {
+    public sealed interface Statement permits SelectStmt, InsertStmt, UpdateStmt, DeleteStmt, ExplainStmt {
     }
 
     public static abstract class SelectItem {
@@ -86,6 +86,14 @@ public final class Ast {
             this.table = table;
             this.columns = List.copyOf(columns);
             this.values = List.copyOf(values);
+        }
+    }
+
+    public static final class ExplainStmt implements Statement {
+        public final SelectStmt select;
+
+        public ExplainStmt(SelectStmt select) {
+            this.select = Objects.requireNonNull(select);
         }
     }
 

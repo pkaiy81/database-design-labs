@@ -9,6 +9,7 @@ public enum TokenType {
     UPDATE, SET,
     DELETE,
     ORDER, BY, LIMIT, ASC, DESC,
+    EXPLAIN,
     CREATE, INDEX,
     USING, BTREE,
     BETWEEN, NOT,
