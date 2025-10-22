@@ -83,6 +83,21 @@ public class SimpleIJ {
                     System.out.println("  " + s);
                 continue;
             }
+            if (trimmed.toLowerCase(Locale.ROOT).startsWith(".schema")) {
+                String[] parts = trimmed.split("\\s+", 2);
+                if (parts.length < 2 || parts[1].isBlank()) {
+                    System.out.println("Usage: .schema <table_name>");
+                } else {
+                    String tableName = parts[1].trim();
+                    Optional<String> ddl = mdm.showCreateTable(tableName);
+                    if (ddl.isPresent()) {
+                        System.out.println(ddl.get());
+                    } else {
+                        System.out.println("Table not found: " + tableName);
+                    }
+                }
+                continue;
+            }
 
             // セミコロン終端
             // SQL 組み立て
@@ -117,6 +132,7 @@ public class SimpleIJ {
                         Meta commands:
                             .tables       List tables
                             .indexes      List indexes
+                            .schema <table> Show CREATE TABLE statement for the table
                         SQL:
                             - Enter a SELECT statement (end with ';')
                             - Supports WHERE(=), JOIN ... ON, ORDER BY, LIMIT, DISTINCT, GROUP BY, HAVING
@@ -153,24 +169,33 @@ public class SimpleIJ {
             return;
         System.out.println("SQL(Debug)> " + sql);
 
-        String head = sql.split("\\s+", 3)[0].toUpperCase(Locale.ROOT);
-        if ("CREATE".equals(head)) {
+        Ast.Statement stmt;
+        try {
+            stmt = new Parser(sql).parseStatement();
+        } catch (Exception e) {
+            System.out.println("Parse ERROR: " + e.getMessage());
+            return;
+        }
+
+        if (stmt instanceof Ast.CreateTableStmt createTable) {
             try {
-                Ast.CreateIndexStmt ci = new Parser(sql).parseCreateIndex();
-                runCreateIndex(ci); // 下のメソッドで実体処理
-                System.out
-                        .println("Index created: " + ci.indexName + " ON " + ci.tableName + "(" + ci.columnName + ")");
+                planner.executeCreateTable(createTable);
+                System.out.println("Table created: " + createTable.tableName);
             } catch (Exception e) {
                 System.out.println("Exec ERROR: " + e.getMessage());
             }
             return;
         }
 
-        Ast.Statement stmt;
-        try {
-            stmt = new Parser(sql).parseStatement();
-        } catch (Exception e) {
-            System.out.println("Parse ERROR: " + e.getMessage());
+        if (stmt instanceof Ast.CreateIndexStmt createIndex) {
+            try {
+                runCreateIndex(createIndex);
+                System.out.println(
+                        "Index created: " + createIndex.indexName + " ON " + createIndex.tableName + "("
+                                + createIndex.columnName + ")");
+            } catch (Exception e) {
+                System.out.println("Exec ERROR: " + e.getMessage());
+            }
             return;
         }
 
@@ -259,6 +284,20 @@ public class SimpleIJ {
             return;
         }
 
+        if (stmt instanceof Ast.DropTableStmt dropTable) {
+            try {
+                boolean removed = planner.executeDropTable(dropTable);
+                if (removed) {
+                    System.out.println("Table dropped: " + dropTable.tableName);
+                } else {
+                    System.out.println("Error: table not found: " + dropTable.tableName);
+                }
+            } catch (Exception e) {
+                System.out.println("Exec ERROR: " + e.getMessage());
+            }
+            return;
+        }
+
         System.out.println("Unsupported statement.");
     }
 
@@ -324,8 +363,8 @@ public class SimpleIJ {
         }
 
         // 4) フォールバック（既知の代表カラム）
-    return List.of("id", "name", "student_id", "score", "count", "sum_score", "avg_score", "min_score",
-        "max_score");
+        return List.of("id", "name", "student_id", "score", "count", "sum_score", "avg_score", "min_score",
+                "max_score");
     }
 
     private List<ColumnDisplay> resolveOutputColumns(Ast.SelectStmt ast) {

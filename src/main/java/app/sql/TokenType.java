@@ -11,7 +11,7 @@ public enum TokenType {
     DROP,
     ORDER, BY, LIMIT, ASC, DESC,
     EXPLAIN,
-    CREATE, INDEX,
+    CREATE, TABLE, INDEX,
     USING, BTREE,
     BETWEEN, NOT,
     SYMBOL, // 未知のシンボル

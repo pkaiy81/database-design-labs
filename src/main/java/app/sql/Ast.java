@@ -3,7 +3,8 @@ package app.sql;
 import java.util.*;
 
 public final class Ast {
-    public sealed interface Statement permits SelectStmt, InsertStmt, UpdateStmt, DeleteStmt, ExplainStmt, DropIndexStmt {
+    public sealed interface Statement permits SelectStmt, InsertStmt, UpdateStmt, DeleteStmt, ExplainStmt,
+            CreateTableStmt, DropTableStmt, CreateIndexStmt, DropIndexStmt {
     }
 
     public static abstract class SelectItem {
@@ -40,7 +41,7 @@ public final class Ast {
         }
     }
 
-    public static final class CreateIndexStmt {
+    public static final class CreateIndexStmt implements Statement {
         public final String indexName;
         public final String tableName;
         public final String columnName;
@@ -49,6 +50,47 @@ public final class Ast {
             this.indexName = in;
             this.tableName = tn;
             this.columnName = cn;
+        }
+    }
+
+    public static final class CreateTableStmt implements Statement {
+        public final String tableName;
+        public final java.util.List<ColumnDef> columns;
+
+        public CreateTableStmt(String tableName, java.util.List<ColumnDef> columns) {
+            this.tableName = Objects.requireNonNull(tableName);
+            if (columns == null || columns.isEmpty())
+                throw new IllegalArgumentException("columns must not be empty");
+            this.columns = java.util.List.copyOf(columns);
+        }
+
+        public static final class ColumnDef {
+            public final String name;
+            public final ColumnType type;
+            public final Integer length;
+
+            public ColumnDef(String name, ColumnType type, Integer length) {
+                this.name = Objects.requireNonNull(name);
+                this.type = Objects.requireNonNull(type);
+                if (type == ColumnType.STRING) {
+                    if (length == null || length <= 0)
+                        throw new IllegalArgumentException("STRING column requires positive length");
+                }
+                this.length = length;
+            }
+        }
+
+        public enum ColumnType {
+            INT,
+            STRING
+        }
+    }
+
+    public static final class DropTableStmt implements Statement {
+        public final String tableName;
+
+        public DropTableStmt(String tableName) {
+            this.tableName = Objects.requireNonNull(tableName);
         }
     }
 

@@ -322,6 +322,26 @@ public final class Planner {
         return mdm.dropIndex(stmt.indexName);
     }
 
+    public void executeCreateTable(Ast.CreateTableStmt stmt) {
+        Schema schema = new Schema();
+        for (Ast.CreateTableStmt.ColumnDef col : stmt.columns) {
+            switch (col.type) {
+                case INT -> schema.addInt(col.name);
+                case STRING -> schema.addString(col.name, col.length);
+                default -> throw new IllegalArgumentException("unsupported column type: " + col.type);
+            }
+        }
+        mdm.createTable(stmt.tableName, schema);
+        Layout layout = mdm.getLayout(stmt.tableName);
+        TableFile tf = new TableFile(fm, stmt.tableName + ".tbl", layout);
+        if (tf.size() == 0)
+            tf.appendFormatted();
+    }
+
+    public boolean executeDropTable(Ast.DropTableStmt stmt) {
+        return mdm.dropTable(stmt.tableName);
+    }
+
     private int expectIntLiteral(Ast.Expr expr, String table, String column) {
         if (expr instanceof Ast.Expr.I i)
             return i.v;

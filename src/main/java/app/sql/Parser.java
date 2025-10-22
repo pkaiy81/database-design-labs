@@ -16,7 +16,8 @@ public final class Parser {
         return switch (lx.type()) {
             case SELECT -> parseSelect();
             case EXPLAIN -> parseExplain();
-            case DROP -> parseDropIndex();
+            case CREATE -> parseCreate();
+            case DROP -> parseDrop();
             case INSERT -> parseInsert();
             case UPDATE -> parseUpdate();
             case DELETE -> parseDelete();
@@ -24,12 +25,22 @@ public final class Parser {
         };
     }
 
-    private Ast.DropIndexStmt parseDropIndex() {
+    private Ast.Statement parseCreate() {
+        expect(CREATE);
+        return switch (lx.type()) {
+            case TABLE -> parseCreateTable();
+            case INDEX -> parseCreateIndex();
+            default -> throw err("unsupported CREATE target: " + lx.type());
+        };
+    }
+
+    private Ast.Statement parseDrop() {
         expect(DROP);
-        expect(INDEX);
-        String name = parseIdentQualified();
-        expect(EOF);
-        return new Ast.DropIndexStmt(name);
+        return switch (lx.type()) {
+            case TABLE -> parseDropTable();
+            case INDEX -> parseDropIndex();
+            default -> throw err("unsupported DROP target: " + lx.type());
+        };
     }
 
     private Ast.ExplainStmt parseExplain() {
@@ -39,8 +50,8 @@ public final class Parser {
     }
 
     public Ast.CreateIndexStmt parseCreateIndex() {
-        expect(TokenType.CREATE);
-        expect(TokenType.INDEX);
+        // CREATE already consumed by parseCreate()
+        expect(INDEX);
 
         String idx = parseIdentQualified(); // index 名（スキーマ付きでも可）
 
@@ -71,6 +82,54 @@ public final class Parser {
 
         expect(TokenType.EOF);
         return new Ast.CreateIndexStmt(idx, tbl, col);
+    }
+
+    private Ast.DropIndexStmt parseDropIndex() {
+        expect(INDEX);
+        String name = parseIdentQualified();
+        expect(EOF);
+        return new Ast.DropIndexStmt(name);
+    }
+
+    private Ast.CreateTableStmt parseCreateTable() {
+        expect(TABLE);
+        String tableName = parseIdentQualified();
+        expect(LPAREN);
+        List<Ast.CreateTableStmt.ColumnDef> columns = new ArrayList<>();
+        columns.add(parseCreateTableColumn());
+        while (lx.type() == COMMA) {
+            lx.next();
+            columns.add(parseCreateTableColumn());
+        }
+        expect(RPAREN);
+        expect(EOF);
+        return new Ast.CreateTableStmt(tableName, columns);
+    }
+
+    private Ast.DropTableStmt parseDropTable() {
+        expect(TABLE);
+        String tableName = parseIdentQualified();
+        expect(EOF);
+        return new Ast.DropTableStmt(tableName);
+    }
+
+    private Ast.CreateTableStmt.ColumnDef parseCreateTableColumn() {
+        String name = parseIdentQualified();
+        Ast.CreateTableStmt.ColumnType type;
+        Integer len = null;
+        if (lx.type() == IDENT && lx.text().equalsIgnoreCase("INT")) {
+            type = Ast.CreateTableStmt.ColumnType.INT;
+            lx.next();
+        } else if (lx.type() == IDENT && lx.text().equalsIgnoreCase("STRING")) {
+            lx.next();
+            type = Ast.CreateTableStmt.ColumnType.STRING;
+            expect(LPAREN);
+            len = parseIntLiteral();
+            expect(RPAREN);
+        } else {
+            throw err("column type (INT or STRING(n))");
+        }
+        return new Ast.CreateTableStmt.ColumnDef(name, type, len);
     }
 
     public Ast.SelectStmt parseSelect() {

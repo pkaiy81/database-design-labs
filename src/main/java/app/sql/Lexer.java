@@ -214,6 +214,9 @@ public final class Lexer {
             case "CREATE":
                 type = TokenType.CREATE;
                 break;
+            case "TABLE":
+                type = TokenType.TABLE;
+                break;
             case "INDEX":
                 type = TokenType.INDEX;
                 break;

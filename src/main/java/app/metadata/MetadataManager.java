@@ -4,10 +4,13 @@ import app.index.btree.BTreeIndex;
 import app.record.*;
 import app.storage.FileMgr;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
-
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * システムカタログ管理:
@@ -72,6 +75,8 @@ public final class MetadataManager {
 
     /** ユーザー定義テーブルの作成（カタログにレコード追加） */
     public void createTable(String tblname, Schema schema) {
+        if (tableExists(tblname))
+            throw new IllegalArgumentException("table already exists: " + tblname);
         // Layout を一度作って recordSize を求める
         Layout layout = new Layout(schema);
         int slotSize = layout.recordSize();
@@ -100,6 +105,17 @@ public final class MetadataManager {
                 scan.setInt("offset", off);
             }
         }
+    }
+
+    private boolean tableExists(String tblname) {
+        try (TableScan scan = new TableScan(fm, tblcat)) {
+            scan.beforeFirst();
+            while (scan.next()) {
+                if (tblname.equals(scan.getString("tblname")))
+                    return true;
+            }
+        }
+        return false;
     }
 
     /** カタログから Layout を復元 */
@@ -171,6 +187,50 @@ public final class MetadataManager {
             s.setString("tname", tname);
             s.setString("fname", fname);
         }
+    }
+
+    public boolean dropTable(String tblname) {
+        if (!tableExists(tblname))
+            return false;
+
+        // 関連するインデックスを記録してから削除
+        List<String> indexes = new ArrayList<>();
+        try (TableScan s = new TableScan(fm, idxcat)) {
+            s.beforeFirst();
+            while (s.next()) {
+                if (tblname.equals(s.getString("tname"))) {
+                    indexes.add(s.getString("iname"));
+                }
+            }
+        }
+        for (String idx : indexes) {
+            dropIndex(idx);
+        }
+
+        // fldcat からカラム情報を削除
+        try (TableScan s = new TableScan(fm, fldcat)) {
+            s.beforeFirst();
+            while (s.next()) {
+                if (tblname.equals(s.getString("tblname"))) {
+                    s.delete();
+                }
+            }
+        }
+
+        // tblcat からテーブル本体を削除
+        try (TableScan s = new TableScan(fm, tblcat)) {
+            s.beforeFirst();
+            while (s.next()) {
+                if (tblname.equals(s.getString("tblname"))) {
+                    s.delete();
+                    break;
+                }
+            }
+        }
+
+        // 物理テーブルファイルを削除
+        fm.deleteFileIfExists(tblname + ".tbl");
+        return true;
     }
 
     /**
@@ -268,6 +328,47 @@ public final class MetadataManager {
             }
         }
         return list;
+    }
+
+    public Optional<String> showCreateTable(String tblname) {
+        if (!tableExists(tblname))
+            return Optional.empty();
+        List<ColumnMetadata> columns = loadColumnMetadata(tblname);
+        if (columns.isEmpty())
+            return Optional.of("CREATE TABLE " + tblname + " ();" );
+        String cols = columns.stream()
+                .map(col -> "  " + col.name() + " " + formatColumnType(col))
+                .collect(Collectors.joining(",\n"));
+        return Optional.of("CREATE TABLE " + tblname + " (\n" + cols + "\n);");
+    }
+
+    private String formatColumnType(ColumnMetadata col) {
+        return switch (col.type()) {
+            case INT -> "INT";
+            case STRING -> "STRING(" + Math.max(1, col.lengthBytes() / 4) + ")";
+        };
+    }
+
+    private List<ColumnMetadata> loadColumnMetadata(String tblname) {
+        List<ColumnMetadata> cols = new ArrayList<>();
+        try (TableScan s = new TableScan(fm, fldcat)) {
+            s.beforeFirst();
+            while (s.next()) {
+                if (!tblname.equals(s.getString("tblname")))
+                    continue;
+                String fld = s.getString("fldname");
+                int typeCode = s.getInt("type");
+                int length = s.getInt("length");
+                int offset = s.getInt("offset");
+                FieldType type = (typeCode == 0) ? FieldType.INT : FieldType.STRING;
+                cols.add(new ColumnMetadata(fld, type, length, offset));
+            }
+        }
+        cols.sort(Comparator.comparingInt(ColumnMetadata::offset));
+        return cols;
+    }
+
+    private record ColumnMetadata(String name, FieldType type, int lengthBytes, int offset) {
     }
 
     // (table, column) に紐づく index 名を1つ返す（複数ある場合は最初の1つ）
