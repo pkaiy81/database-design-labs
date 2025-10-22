@@ -11,6 +11,7 @@ import app.storage.FileMgr;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -42,6 +43,7 @@ public final class Planner {
 
         Layout baseLayout = mdm.getLayout(ast.from.table);
         TableFile baseTf = new TableFile(fm, ast.from.table + ".tbl", baseLayout);
+        LinkedHashSet<String> availableFields = new LinkedHashSet<>(baseLayout.schema().fields().keySet());
 
         boolean skipWhereProcessing = false;
         boolean orderHandled = false;
@@ -66,6 +68,7 @@ public final class Planner {
         for (Ast.Join j : ast.joins) {
             Layout rightLayout = mdm.getLayout(j.table);
             TableFile rightTf = new TableFile(fm, j.table + ".tbl", rightLayout);
+            availableFields.addAll(rightLayout.schema().fields().keySet());
 
             String leftCol = null, rightCol = null;
             if (j.on.left instanceof Ast.Expr.Col && j.on.right instanceof Ast.Expr.Col) {
@@ -205,7 +208,14 @@ public final class Planner {
 
         if (ast.orderBy != null && !orderHandled) {
             String fld = stripQualifier(ast.orderBy.field);
-            List<String> carry = outputCols.isEmpty() ? List.of(fld) : outputCols;
+            List<String> carry;
+            if (outputCols.isEmpty()) {
+                carry = new ArrayList<>(availableFields);
+            } else {
+                carry = new ArrayList<>(outputCols);
+            }
+            if (carry.isEmpty())
+                carry.add(fld);
             s = new OrderByScan(s, fld, ast.orderBy.asc, carry);
             planNode = node("Sort", mapOf("keys", fld, "order", ast.orderBy.asc ? "ASC" : "DESC"), planNode);
         }
@@ -485,17 +495,45 @@ public final class Planner {
     }
 
     private Predicate toPredicate(Ast.Predicate p) {
+        if (p instanceof Ast.PredicateCompare compare) {
+            if (!(compare.left instanceof Ast.Expr.Col leftCol))
+                throw new IllegalArgumentException("unsupported predicate: left-hand side is not a column");
+            String left = stripQualifier(leftCol.name);
+            Ast.Expr right = compare.right;
+            return switch (compare.op) {
+                case "=" -> {
+                    if (right instanceof Ast.Expr.Col rc)
+                        yield Predicate.eqField(left, stripQualifier(rc.name));
+                    if (right instanceof Ast.Expr.I ri)
+                        yield Predicate.compareInt(left, Predicate.Op.EQ, ri.v);
+                    if (right instanceof Ast.Expr.S rs)
+                        yield Predicate.eqString(left, rs.v);
+                    throw new IllegalArgumentException("unsupported '=' predicate rhs: " + right.getClass());
+                }
+                case "<" -> Predicate.compareInt(left, Predicate.Op.LT, expectIntLiteral(right, left));
+                case "<=" -> Predicate.compareInt(left, Predicate.Op.LE, expectIntLiteral(right, left));
+                case ">" -> Predicate.compareInt(left, Predicate.Op.GT, expectIntLiteral(right, left));
+                case ">=" -> Predicate.compareInt(left, Predicate.Op.GE, expectIntLiteral(right, left));
+                default -> throw new IllegalArgumentException("unsupported comparison operator: " + compare.op);
+            };
+        }
         if (p.left instanceof Ast.Expr.Col && p.right instanceof Ast.Expr.Col) {
             return Predicate.eqField(stripQualifier(((Ast.Expr.Col) p.left).name),
                     stripQualifier(((Ast.Expr.Col) p.right).name));
         } else if (p.left instanceof Ast.Expr.Col && p.right instanceof Ast.Expr.I) {
-            return Predicate.eqInt(stripQualifier(((Ast.Expr.Col) p.left).name),
+            return Predicate.compareInt(stripQualifier(((Ast.Expr.Col) p.left).name), Predicate.Op.EQ,
                     ((Ast.Expr.I) p.right).v);
         } else if (p.left instanceof Ast.Expr.Col && p.right instanceof Ast.Expr.S) {
             return Predicate.eqString(stripQualifier(((Ast.Expr.Col) p.left).name),
                     ((Ast.Expr.S) p.right).v);
         }
         throw new IllegalArgumentException("unsupported predicate");
+    }
+
+    private static int expectIntLiteral(Ast.Expr expr, String field) {
+        if (expr instanceof Ast.Expr.I ri)
+            return ri.v;
+        throw new IllegalArgumentException("Expected integer literal for comparison on field '" + field + "'");
     }
 
     private static String strip(String name) {
