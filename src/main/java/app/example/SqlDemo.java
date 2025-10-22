@@ -24,6 +24,7 @@ public class SqlDemo {
         // データ挿入
         TableFile sFile = new TableFile(fm, "students.tbl", new Layout(sSchema));
         try (TableScan ts = new TableScan(fm, sFile)) {
+            ts.enableIndexMaintenance(mdm, "students");
             ts.insert();
             ts.setInt("id", 1);
             ts.setString("name", "Ada");
@@ -36,6 +37,7 @@ public class SqlDemo {
         }
         TableFile eFile = new TableFile(fm, "enrollments.tbl", new Layout(eSchema));
         try (TableScan ts = new TableScan(fm, eFile)) {
+            ts.enableIndexMaintenance(mdm, "enrollments");
             ts.insert();
             ts.setInt("student_id", 1);
             ts.setString("course", "DB");

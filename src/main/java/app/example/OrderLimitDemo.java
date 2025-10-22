@@ -23,6 +23,7 @@ public class OrderLimitDemo {
         TableFile tf = new TableFile(fm, "students.tbl", layout);
 
         try (TableScan ts = new TableScan(fm, tf)) {
+            ts.enableIndexMaintenance(mdm, tbl);
             ts.insert();
             ts.setInt("id", 2);
             ts.setString("name", "Turing");

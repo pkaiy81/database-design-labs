@@ -317,6 +317,7 @@ public class SimpleIJ {
             Layout l = mdm.getLayout(t);
             TableFile f = new TableFile(fm, t + ".tbl", l);
             try (TableScan ts = new TableScan(fm, f)) {
+                ts.enableIndexMaintenance(mdm, t);
                 ts.insert();
                 ts.setInt("id", 1);
                 ts.setString("name", "Ada");
@@ -336,6 +337,7 @@ public class SimpleIJ {
             Layout l = mdm.getLayout(t);
             TableFile f = new TableFile(fm, t + ".tbl", l);
             try (TableScan ts = new TableScan(fm, f)) {
+                ts.enableIndexMaintenance(mdm, t);
                 ts.insert();
                 ts.setInt("student_id", 1);
                 ts.setInt("score", 70);

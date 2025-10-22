@@ -23,6 +23,7 @@ public class GroupByDemo {
         Layout layout = mdm.getLayout(tbl);
         TableFile tf = new TableFile(fm, "scores.tbl", layout);
         try (TableScan ts = new TableScan(fm, tf)) {
+            ts.enableIndexMaintenance(mdm, tbl);
             // student_id ごとに複数レコード
             ts.insert();
             ts.setInt("student_id", 1);
