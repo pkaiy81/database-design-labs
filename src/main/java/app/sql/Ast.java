@@ -102,13 +102,36 @@ public final class Ast {
         }
     }
 
-    public static final class Predicate {
+    public static class Predicate {
         public final Expr left;
         public final Expr right;
 
         public Predicate(Expr l, Expr r) {
             this.left = l;
             this.right = r;
+        }
+    }
+
+    // PredicateBetween
+    // (string, int, int)
+    public static final class PredicateBetween extends Predicate {
+        public final int low;
+        public final int high;
+
+        public PredicateBetween(Expr left, int low, int high) {
+            super(left, null);
+            this.low = low;
+            this.high = high;
+        }
+    }
+
+    // PredicateCompare
+    public static final class PredicateCompare extends Predicate {
+        public final String op; // "=", ">", "<", ">=", "<="
+
+        public PredicateCompare(String col, CompareOp le, int right) {
+            super(new Expr.Col(col), new Expr.I(right));
+            this.op = le.op;
         }
     }
 
@@ -137,4 +160,21 @@ public final class Ast {
             }
         }
     }
+
+    // CompareOp
+    // "=", ">", "<", ">=", "<="
+    // LE, GE, EQ, LT, GT
+    public static final class CompareOp {
+        public static final CompareOp LE = new CompareOp("<=");
+        public static final CompareOp GE = new CompareOp(">=");
+        public static final CompareOp EQ = new CompareOp("=");
+        public static final CompareOp LT = new CompareOp("<");
+        public static final CompareOp GT = new CompareOp(">");
+        public final String op;
+
+        public CompareOp(String o) {
+            this.op = o;
+        }
+    }
+
 }

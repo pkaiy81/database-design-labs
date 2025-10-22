@@ -135,6 +135,11 @@ public final class TableScan implements app.query.Scan {
         fm.write(b, rp.page()); // ← RecordPage に page() ゲッターを追加（下の最小パッチ参照）
     }
 
+    // hasField
+    public boolean hasField(String fldName) {
+        return tf.hasField(fldName);
+    }
+
     @Override
     public void close() {
         // 今の設計では明示 flush は各setterで実施済み。必要ならここで後始末を。
