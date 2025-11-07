@@ -3,6 +3,10 @@ package app.sql;
 import java.util.*;
 
 public final class Ast {
+    public sealed interface Statement permits SelectStmt, InsertStmt, UpdateStmt, DeleteStmt, ExplainStmt,
+            CreateTableStmt, DropTableStmt, CreateIndexStmt, DropIndexStmt {
+    }
+
     public static abstract class SelectItem {
         public static final class Column extends SelectItem {
             public final String name;
@@ -37,7 +41,60 @@ public final class Ast {
         }
     }
 
-    public static final class SelectStmt {
+    public static final class CreateIndexStmt implements Statement {
+        public final String indexName;
+        public final String tableName;
+        public final String columnName;
+
+        public CreateIndexStmt(String in, String tn, String cn) {
+            this.indexName = in;
+            this.tableName = tn;
+            this.columnName = cn;
+        }
+    }
+
+    public static final class CreateTableStmt implements Statement {
+        public final String tableName;
+        public final java.util.List<ColumnDef> columns;
+
+        public CreateTableStmt(String tableName, java.util.List<ColumnDef> columns) {
+            this.tableName = Objects.requireNonNull(tableName);
+            if (columns == null || columns.isEmpty())
+                throw new IllegalArgumentException("columns must not be empty");
+            this.columns = java.util.List.copyOf(columns);
+        }
+
+        public static final class ColumnDef {
+            public final String name;
+            public final ColumnType type;
+            public final Integer length;
+
+            public ColumnDef(String name, ColumnType type, Integer length) {
+                this.name = Objects.requireNonNull(name);
+                this.type = Objects.requireNonNull(type);
+                if (type == ColumnType.STRING) {
+                    if (length == null || length <= 0)
+                        throw new IllegalArgumentException("STRING column requires positive length");
+                }
+                this.length = length;
+            }
+        }
+
+        public enum ColumnType {
+            INT,
+            STRING
+        }
+    }
+
+    public static final class DropTableStmt implements Statement {
+        public final String tableName;
+
+        public DropTableStmt(String tableName) {
+            this.tableName = Objects.requireNonNull(tableName);
+        }
+    }
+
+    public static final class SelectStmt implements Statement {
         public final boolean distinct;
         public final List<SelectItem> projections;
         public final From from;
@@ -59,6 +116,66 @@ public final class Ast {
             this.having = having;
             this.orderBy = orderBy;
             this.limit = limit;
+        }
+    }
+
+    public static final class InsertStmt implements Statement {
+        public final String table;
+        public final List<String> columns;
+        public final List<Expr> values;
+
+        public InsertStmt(String table, List<String> columns, List<Expr> values) {
+            this.table = table;
+            this.columns = List.copyOf(columns);
+            this.values = List.copyOf(values);
+        }
+    }
+
+    public static final class ExplainStmt implements Statement {
+        public final SelectStmt select;
+
+        public ExplainStmt(SelectStmt select) {
+            this.select = Objects.requireNonNull(select);
+        }
+    }
+
+    public static final class DropIndexStmt implements Statement {
+        public final String indexName;
+
+        public DropIndexStmt(String indexName) {
+            this.indexName = Objects.requireNonNull(indexName);
+        }
+    }
+
+    public static final class UpdateStmt implements Statement {
+        public final String table;
+        public final List<Assignment> assignments;
+        public final List<Predicate> where;
+
+        public UpdateStmt(String table, List<Assignment> assignments, List<Predicate> where) {
+            this.table = table;
+            this.assignments = List.copyOf(assignments);
+            this.where = List.copyOf(where);
+        }
+
+        public static final class Assignment {
+            public final String column;
+            public final Expr value;
+
+            public Assignment(String column, Expr value) {
+                this.column = column;
+                this.value = value;
+            }
+        }
+    }
+
+    public static final class DeleteStmt implements Statement {
+        public final String table;
+        public final List<Predicate> where;
+
+        public DeleteStmt(String table, List<Predicate> where) {
+            this.table = table;
+            this.where = List.copyOf(where);
         }
     }
 
@@ -90,13 +207,36 @@ public final class Ast {
         }
     }
 
-    public static final class Predicate {
+    public static class Predicate {
         public final Expr left;
         public final Expr right;
 
         public Predicate(Expr l, Expr r) {
             this.left = l;
             this.right = r;
+        }
+    }
+
+    // PredicateBetween
+    // (string, int, int)
+    public static final class PredicateBetween extends Predicate {
+        public final int low;
+        public final int high;
+
+        public PredicateBetween(Expr left, int low, int high) {
+            super(left, null);
+            this.low = low;
+            this.high = high;
+        }
+    }
+
+    // PredicateCompare
+    public static final class PredicateCompare extends Predicate {
+        public final String op; // "=", ">", "<", ">=", "<="
+
+        public PredicateCompare(String col, CompareOp le, int right) {
+            super(new Expr.Col(col), new Expr.I(right));
+            this.op = le.op;
         }
     }
 
@@ -125,4 +265,21 @@ public final class Ast {
             }
         }
     }
+
+    // CompareOp
+    // "=", ">", "<", ">=", "<="
+    // LE, GE, EQ, LT, GT
+    public static final class CompareOp {
+        public static final CompareOp LE = new CompareOp("<=");
+        public static final CompareOp GE = new CompareOp(">=");
+        public static final CompareOp EQ = new CompareOp("=");
+        public static final CompareOp LT = new CompareOp("<");
+        public static final CompareOp GT = new CompareOp(">");
+        public final String op;
+
+        public CompareOp(String o) {
+            this.op = o;
+        }
+    }
+
 }

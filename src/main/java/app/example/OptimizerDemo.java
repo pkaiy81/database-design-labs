@@ -26,6 +26,7 @@ public class OptimizerDemo {
 
         // データ投入（少し多め）
         try (TableScan ts = new TableScan(fm, tf)) {
+            ts.enableIndexMaintenance(mdm, tbl);
             for (int i = 1; i <= 20; i++) {
                 ts.insert();
                 ts.setInt("id", i % 7); // 0..6 の重複キー

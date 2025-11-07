@@ -27,6 +27,7 @@ public class MetadataDemo {
         // 3) TableFile & TableScan でデータ挿入・走査
         TableFile tf = new TableFile(fm, "students.tbl", layout);
         try (TableScan scan = new TableScan(fm, tf)) {
+            scan.enableIndexMaintenance(mdm, "students");
             scan.insert();
             scan.setInt("id", 1);
             scan.setString("name", "Ada");

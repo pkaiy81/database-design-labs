@@ -24,6 +24,7 @@ public class QueryDemo {
 
         // データ挿入
         try (TableScan sScan = new TableScan(fm, sFile)) {
+            sScan.enableIndexMaintenance(mdm, sTbl);
             sScan.insert();
             sScan.setInt("id", 1);
             sScan.setString("name", "Ada");
@@ -43,6 +44,7 @@ public class QueryDemo {
         TableFile eFile = new TableFile(fm, eTbl + ".tbl", eLayout);
 
         try (TableScan eScan = new TableScan(fm, eFile)) {
+            eScan.enableIndexMaintenance(mdm, eTbl);
             eScan.insert();
             eScan.setInt("student_id", 1);
             eScan.setString("course", "DB");

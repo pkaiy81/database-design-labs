@@ -14,7 +14,45 @@ public final class OrderByScan implements Scan {
     private final List<String> carryFields; // 並べ替え後も参照される列
 
     private static final class Row {
-        final Map<String, Object> vals = new HashMap<>();
+        final Map<String, FieldValue> vals = new HashMap<>();
+    }
+
+    private static final class FieldValue {
+        final Integer intValue;
+        final String stringValue;
+
+        FieldValue(Integer intValue, String stringValue) {
+            this.intValue = intValue;
+            this.stringValue = stringValue;
+        }
+
+        Integer asInt() {
+            if (intValue != null)
+                return intValue;
+            if (stringValue != null && stringValue.matches("-?\\d+"))
+                return Integer.parseInt(stringValue);
+            throw new IllegalArgumentException("not an int value");
+        }
+
+        String asString() {
+            if (stringValue != null)
+                return stringValue;
+            if (intValue != null)
+                return Integer.toString(intValue);
+            return null;
+        }
+
+        int compareTo(FieldValue other) {
+            if (this == other)
+                return 0;
+            if (other == null)
+                return (this.intValue == null && this.stringValue == null) ? 0 : 1;
+            if (this.intValue != null && other.intValue != null)
+                return Integer.compare(this.intValue, other.intValue);
+            String a = java.util.Objects.toString(this.asString(), "");
+            String b = java.util.Objects.toString(other.asString(), "");
+            return a.compareTo(b);
+        }
     }
 
     private List<Row> rows = new ArrayList<>();
@@ -30,35 +68,20 @@ public final class OrderByScan implements Scan {
         this.carryFields = new ArrayList<>(set);
     }
 
-    private Object readSmart(Scan s, String f) {
-        String sv = null;
-        boolean sOk = false;
+    private FieldValue captureField(Scan s, String f) {
         Integer iv = null;
-        boolean iOk = false;
-        try {
-            sv = s.getString(f);
-            sOk = true;
-        } catch (Exception ignore) {
-        }
         try {
             iv = s.getInt(f);
-            iOk = true;
         } catch (Exception ignore) {
         }
-
-        if (iOk && !sOk)
-            return iv;
-        if (sOk && !iOk)
-            return sv;
-        if (iOk && sOk) {
-            // 両方成功：sv が純粋な数字で iv と一致なら int を優先。それ以外は文字列優先。
-            if (sv != null && sv.matches("-?\\d+") && (iv != null) && sv.equals(Integer.toString(iv))) {
-                return iv;
-            } else {
-                return sv;
-            }
+        String sv = null;
+        try {
+            sv = s.getString(f);
+        } catch (Exception ignore) {
         }
-        return null;
+        if (iv == null && sv == null)
+            return new FieldValue(null, null);
+        return new FieldValue(iv, sv);
     }
 
     @Override
@@ -68,23 +91,19 @@ public final class OrderByScan implements Scan {
         while (child.next()) {
             Row r = new Row();
             // 並べ替えキー
-            r.vals.put(orderField, readSmart(child, orderField));
+            r.vals.put(orderField, captureField(child, orderField));
             // それ以外の列
             for (String f : carryFields) {
                 if (f.equals(orderField))
                     continue;
-                r.vals.put(f, readSmart(child, f));
+                r.vals.put(f, captureField(child, f));
             }
             rows.add(r);
         }
         rows.sort((a, b) -> {
-            Object va = a.vals.get(orderField);
-            Object vb = b.vals.get(orderField);
-            int cmp;
-            if (va instanceof Integer && vb instanceof Integer)
-                cmp = Integer.compare((Integer) va, (Integer) vb);
-            else
-                cmp = java.util.Objects.toString(va, "").compareTo(java.util.Objects.toString(vb, ""));
+            FieldValue va = a.vals.get(orderField);
+            FieldValue vb = b.vals.get(orderField);
+            int cmp = (va != null) ? va.compareTo(vb) : (vb == null ? 0 : -1);
             return asc ? cmp : -cmp;
         });
         pos = -1;
@@ -97,22 +116,20 @@ public final class OrderByScan implements Scan {
 
     @Override
     public int getInt(String field) {
-        Object v = rows.get(pos).vals.get(field);
-        if (v instanceof Integer)
-            return (Integer) v;
-        if (v instanceof String) {
-            String sv = (String) v;
-            if (sv.matches("-?\\d+"))
-                return Integer.parseInt(sv);
-        }
-        throw new IllegalArgumentException("not an int or not materialized: " + field);
+        FieldValue v = rows.get(pos).vals.get(field);
+        if (v == null)
+            throw new IllegalArgumentException("not materialized: " + field);
+        return v.asInt();
     }
 
     @Override
     public String getString(String field) {
-        Object v = rows.get(pos).vals.get(field);
-        if (v != null)
-            return v.toString();
+        FieldValue v = rows.get(pos).vals.get(field);
+        if (v != null) {
+            String s = v.asString();
+            if (s != null)
+                return s;
+        }
         throw new IllegalArgumentException("not materialized: " + field);
     }
 

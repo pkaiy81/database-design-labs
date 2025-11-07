@@ -4,7 +4,11 @@ import java.util.Objects;
 
 public final class Predicate {
     public enum Op {
-        EQ
+        EQ,
+        LT,
+        LE,
+        GT,
+        GE
     }
 
     private final String leftField;
@@ -26,11 +30,17 @@ public final class Predicate {
     }
 
     public static Predicate eqInt(String leftField, int value) {
-        return new Predicate(leftField, Op.EQ, null, value, null);
+        return compareInt(leftField, Op.EQ, value);
     }
 
     public static Predicate eqString(String leftField, String value) {
         return new Predicate(leftField, Op.EQ, null, null, value);
+    }
+
+    public static Predicate compareInt(String leftField, Op op, int value) {
+        if (op == null)
+            throw new IllegalArgumentException("op must not be null");
+        return new Predicate(leftField, op, null, value, null);
     }
 
     public boolean evaluate(Scan s) {
@@ -48,6 +58,14 @@ public final class Predicate {
                 } else {
                     return s.getString(leftField).equals(rightStr);
                 }
+            case LT:
+                return s.getInt(leftField) < rightInt;
+            case LE:
+                return s.getInt(leftField) <= rightInt;
+            case GT:
+                return s.getInt(leftField) > rightInt;
+            case GE:
+                return s.getInt(leftField) >= rightInt;
         }
         throw new IllegalStateException("Unsupported op: " + op);
     }

@@ -41,7 +41,15 @@ application {
     applicationName = "minidb"
 }
 
-tasks.test { useJUnitPlatform() }
+//tasks.test { useJUnitPlatform() }
+tasks.test {
+  useJUnitPlatform()
+  testLogging {
+    events("passed", "failed", "skipped")
+    showStandardStreams = true
+  }
+}
+
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"

@@ -16,12 +16,14 @@ public final class FileMgr {
     public FileMgr(Path dbDir, int blockSize) {
         if (blockSize <= 0)
             throw new IllegalArgumentException("blockSize must be > 0");
+
         this.dbDir = dbDir;
         this.blockSize = blockSize;
+
         try {
-            Files.createDirectories(dbDir);
+            Files.createDirectories(this.dbDir); // メンバ変数を使う
         } catch (IOException e) {
-            throw new RuntimeException("Failed to create db directory: " + dbDir, e);
+            throw new RuntimeException("Failed to create db directory: " + this.dbDir, e);
         }
     }
 
@@ -68,7 +70,9 @@ public final class FileMgr {
     public synchronized BlockId append(String filename) {
         Path file = path(filename);
         try (FileChannel fc = FileChannel.open(file,
-                StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE)) {
+                StandardOpenOption.READ,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE)) {
             int newBlkNum = (int) (fc.size() / blockSize);
             fc.position((long) newBlkNum * blockSize);
             fc.write(ByteBuffer.allocate(blockSize)); // ゼロで1ブロック拡張
@@ -88,5 +92,19 @@ public final class FileMgr {
         } catch (IOException e) {
             throw new RuntimeException("length failed: " + filename, e);
         }
+    }
+
+    /** DB 直下のファイルをベストエフォートで削除（存在しなければ false）。 */
+    public boolean deleteFileIfExists(String filename) {
+        try {
+            return java.nio.file.Files.deleteIfExists(dbDir.resolve(filename));
+        } catch (java.io.IOException e) {
+            return false;
+        }
+    }
+
+    /** 便宜上、DB 直下の Path を返す */
+    public java.nio.file.Path resolve(String filename) {
+        return dbDir.resolve(filename);
     }
 }

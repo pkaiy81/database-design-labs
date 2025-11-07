@@ -1,5 +1,7 @@
 package app.cli;
 
+import app.index.RID;
+import app.index.SearchKey;
 import app.metadata.MetadataManager;
 import app.query.Scan;
 import app.record.Layout;
@@ -19,7 +21,11 @@ import java.util.stream.Collectors;
 
 /**
  * SimpleIJ っぽい最小CLI:
- * - 1行またはセミコロン区切りでSQLを受け付けて実行（SELECTのみ）
+ * - 1行またはセミコロン区切りでSQLを受け付けて実行
+ * - CREATE INDEX 文をサポート
+ * - SELECT 文をサポート（WHERE(=), JOIN ... ON, ORDER BY, LIMIT, DISTINCT, GROUP BY,
+ * HAVING）
+ * - .tables / .indexes メタコマンド
  * - メタコマンド(:help, :exit, :reset, :demo, :plan)
  * - 結果をASCIIテーブルで表示
  */
@@ -63,7 +69,38 @@ public class SimpleIJ {
                 continue;
             }
 
-            // セミコロン終端 or 1行SQL
+            // .tables / .indexes は即時処理（バッファ積まずに処理して continue）
+            String trimmed = line;
+            if (trimmed.equalsIgnoreCase(".tables")) {
+                System.out.println("Tables:");
+                for (String t : mdm.listTableNames())
+                    System.out.println("  " + t);
+                continue;
+            }
+            if (trimmed.equalsIgnoreCase(".indexes")) {
+                System.out.println("Indexes:");
+                for (String s : mdm.listIndexesFormatted())
+                    System.out.println("  " + s);
+                continue;
+            }
+            if (trimmed.toLowerCase(Locale.ROOT).startsWith(".schema")) {
+                String[] parts = trimmed.split("\\s+", 2);
+                if (parts.length < 2 || parts[1].isBlank()) {
+                    System.out.println("Usage: .schema <table_name>");
+                } else {
+                    String tableName = parts[1].trim();
+                    Optional<String> ddl = mdm.showCreateTable(tableName);
+                    if (ddl.isPresent()) {
+                        System.out.println(ddl.get());
+                    } else {
+                        System.out.println("Table not found: " + tableName);
+                    }
+                }
+                continue;
+            }
+
+            // セミコロン終端
+            // SQL 組み立て
             buf.append(line);
             if (line.endsWith(";")) {
                 String sql = buf.toString();
@@ -75,9 +112,9 @@ public class SimpleIJ {
                 // 行継続にしたい場合はセミコロンを使う
                 // exec(buf.toString());
                 // buf.setLength(0);
-		// セミコロンがない場合は、次の行を待つ
-		buf.append(" "); // スペースを入れて次の行と連結（任意）
-		// 実行しない（ユーザーが ; を入力するまで継続）
+                // セミコロンがない場合は、次の行を待つ
+                buf.append(" "); // スペースを入れて次の行と連結（任意）
+                // 実行しない（ユーザーが ; を入力するまで継続）
             }
         }
     }
@@ -87,14 +124,18 @@ public class SimpleIJ {
             case ":help":
                 System.out.println("""
                         Commands:
-                          :help          Show this help
-                          :exit          Exit
-                          :reset         Remove ./data directory (ALL DATA LOST)
-                          :demo          Create demo tables and seed data
-                          :plan on/off   Toggle [PLAN] logs printed by operators
+                            :help          Show this help
+                            :exit          Exit
+                            :reset         Remove ./data directory (ALL DATA LOST)
+                            :demo          Create demo tables and seed data
+                            :plan on/off   Toggle [PLAN] logs printed by operators
+                        Meta commands:
+                            .tables       List tables
+                            .indexes      List indexes
+                            .schema <table> Show CREATE TABLE statement for the table
                         SQL:
-                          - Enter a SELECT statement (1 line or end with ';')
-                          - Supports WHERE(=), JOIN ... ON, ORDER BY, LIMIT, DISTINCT, GROUP BY, HAVING
+                            - Enter a SELECT statement (end with ';')
+                            - Supports WHERE(=), JOIN ... ON, ORDER BY, LIMIT, DISTINCT, GROUP BY, HAVING
                         """);
                 return true;
             case ":exit":
@@ -104,6 +145,7 @@ public class SimpleIJ {
                 System.out.println("data directory removed.");
                 return true;
             case ":demo":
+                Util.ensureDataDir();
                 createDemoData();
                 System.out.println("demo data created: tables 'names', 'scores'");
                 return true;
@@ -125,47 +167,147 @@ public class SimpleIJ {
         sql = sql.trim();
         if (sql.isEmpty())
             return;
-        System.out.println("SQL> " + sql);
+        System.out.println("SQL(Debug)> " + sql);
 
-        Ast.SelectStmt ast;
+        Ast.Statement stmt;
         try {
-            ast = new Parser(sql).parseSelect();
+            stmt = new Parser(sql).parseStatement();
         } catch (Exception e) {
             System.out.println("Parse ERROR: " + e.getMessage());
             return;
         }
 
-        // 予定カラムを推定（表示用）
-        List<String> cols;
-        try {
-            cols = resolveOutputColumns(ast);
-        } catch (Exception e) {
-            System.out.println("Resolve-cols WARN: " + e.getMessage());
-            cols = List.of("id", "name", "student_id", "score", "count", "sum_score", "avg_score", "min_score",
-                    "max_score");
+        if (stmt instanceof Ast.CreateTableStmt createTable) {
+            try {
+                planner.executeCreateTable(createTable);
+                System.out.println("Table created: " + createTable.tableName);
+            } catch (Exception e) {
+                System.out.println("Exec ERROR: " + e.getMessage());
+            }
+            return;
         }
 
-        try (Scan s = planner.plan(sql)) {
-            s.beforeFirst();
-            TablePrinter tp = new TablePrinter(cols);
-            int rows = 0;
-            while (s.next()) {
-                List<String> out = new ArrayList<>(cols.size());
-                for (String c : cols)
-                    out.add(read(s, c));
-                tp.addRow(out);
-                rows++;
+        if (stmt instanceof Ast.CreateIndexStmt createIndex) {
+            try {
+                runCreateIndex(createIndex);
+                System.out.println(
+                        "Index created: " + createIndex.indexName + " ON " + createIndex.tableName + "("
+                                + createIndex.columnName + ")");
+            } catch (Exception e) {
+                System.out.println("Exec ERROR: " + e.getMessage());
             }
-            tp.print();
-            if (rows == 0)
-                System.out.println("(0 rows)");
-        } catch (Exception e) {
-            System.out.println("Exec ERROR: " + e.getMessage());
+            return;
         }
+
+        if (stmt instanceof Ast.SelectStmt select) {
+            // 予定カラムを推定（表示用）
+            List<ColumnDisplay> cols;
+            try {
+                cols = resolveOutputColumns(select);
+            } catch (Exception e) {
+                System.out.println("Resolve-cols ERROR: " + e.getMessage());
+                return;
+            }
+
+            try (Scan s = planner.plan(select)) {
+                s.beforeFirst();
+                TablePrinter tp = new TablePrinter(cols);
+                int rows = 0;
+                while (s.next()) {
+                    List<String> out = new ArrayList<>(cols.size());
+                    for (ColumnDisplay col : cols)
+                        out.add(read(s, col));
+                    tp.addRow(out);
+                    rows++;
+                }
+                tp.print();
+                if (rows == 0)
+                    System.out.println("(0 rows)");
+            } catch (Exception e) {
+                System.out.println("Exec ERROR: " + e.getMessage());
+            }
+            return;
+        }
+
+        if (stmt instanceof Ast.ExplainStmt explain) {
+            try {
+                String planText = planner.explain(explain);
+                if (planText != null && !planText.isEmpty())
+                    System.out.println(planText);
+            } catch (Exception e) {
+                System.out.println("Exec ERROR: " + e.getMessage());
+            }
+            return;
+        }
+
+        if (stmt instanceof Ast.InsertStmt insert) {
+            try {
+                int rows = planner.executeInsert(insert);
+                printRowResult("inserted", rows);
+            } catch (Exception e) {
+                System.out.println("Exec ERROR: " + e.getMessage());
+            }
+            return;
+        }
+
+        if (stmt instanceof Ast.UpdateStmt update) {
+            try {
+                int rows = planner.executeUpdate(update);
+                printRowResult("updated", rows);
+            } catch (Exception e) {
+                System.out.println("Exec ERROR: " + e.getMessage());
+            }
+            return;
+        }
+
+        if (stmt instanceof Ast.DeleteStmt delete) {
+            try {
+                int rows = planner.executeDelete(delete);
+                printRowResult("deleted", rows);
+            } catch (Exception e) {
+                System.out.println("Exec ERROR: " + e.getMessage());
+            }
+            return;
+        }
+
+        if (stmt instanceof Ast.DropIndexStmt drop) {
+            try {
+                boolean removed = planner.executeDropIndex(drop);
+                if (removed) {
+                    System.out.println("Index dropped: " + drop.indexName);
+                } else {
+                    System.out.println("Error: index not found: " + drop.indexName);
+                }
+            } catch (Exception e) {
+                System.out.println("Exec ERROR: " + e.getMessage());
+            }
+            return;
+        }
+
+        if (stmt instanceof Ast.DropTableStmt dropTable) {
+            try {
+                boolean removed = planner.executeDropTable(dropTable);
+                if (removed) {
+                    System.out.println("Table dropped: " + dropTable.tableName);
+                } else {
+                    System.out.println("Error: table not found: " + dropTable.tableName);
+                }
+            } catch (Exception e) {
+                System.out.println("Exec ERROR: " + e.getMessage());
+            }
+            return;
+        }
+
+        System.out.println("Unsupported statement.");
+    }
+
+    private static void printRowResult(String action, int rows) {
+        String noun = rows == 1 ? " row " : " rows ";
+        System.out.println(rows + noun + action + ".");
     }
 
     /** 表示カラム推定: SELECT list / 集約 / GROUP BY / SELECT * (単表/単純JOINのみ) を最小対応 */
-    private List<String> resolveOutputColumns(Ast.SelectStmt ast) {
+    private List<String> resolveOutputColumnNames(Ast.SelectStmt ast) {
         // 1) 集約 or GROUP BY があれば、前章実装の命名規則に合わせる
         boolean hasAgg = ast.projections.stream().anyMatch(p -> p instanceof Ast.SelectItem.Agg);
         if (hasAgg || ast.groupBy != null) {
@@ -182,7 +324,7 @@ public class SimpleIJ {
             // Column と Agg が混在している場合、Column 側も足す
             for (Ast.SelectItem it : ast.projections) {
                 if (it instanceof Ast.SelectItem.Column c) {
-                    String n = strip(((Ast.SelectItem.Column) it).name);
+                    String n = strip(c.name);
                     if (!"*".equals(n) && !cols.contains(n))
                         cols.add(n);
                 }
@@ -225,6 +367,65 @@ public class SimpleIJ {
                 "max_score");
     }
 
+    private List<ColumnDisplay> resolveOutputColumns(Ast.SelectStmt ast) {
+        List<String> names = resolveOutputColumnNames(ast);
+        List<ColumnDisplay> cols = new ArrayList<>(names.size());
+        for (String name : names)
+            cols.add(new ColumnDisplay(name, deduceColumnKind(name, ast)));
+        return cols;
+    }
+
+    private ColumnKind deduceColumnKind(String columnName, Ast.SelectStmt ast) {
+        // Aggregate outputs default to INT (including COUNT, SUM, AVG, MIN, MAX)
+        String lower = columnName.toLowerCase(Locale.ROOT);
+        if (lower.startsWith("count") || lower.startsWith("sum") || lower.startsWith("avg")
+                || lower.startsWith("min") || lower.startsWith("max"))
+            return ColumnKind.INT;
+
+        String qualifier = null;
+        String field = columnName;
+        int dot = columnName.indexOf('.');
+        if (dot >= 0) {
+            qualifier = columnName.substring(0, dot);
+            field = columnName.substring(dot + 1);
+        }
+        field = strip(field);
+
+        if (qualifier != null) {
+            if (tableHasField(qualifier, field))
+                return kindFromField(qualifier, field);
+        } else {
+            if (tableHasField(ast.from.table, field))
+                return kindFromField(ast.from.table, field);
+            for (Ast.Join join : ast.joins) {
+                if (tableHasField(join.table, field))
+                    return kindFromField(join.table, field);
+            }
+        }
+
+        throw new IllegalArgumentException("Unknown column: " + columnName);
+    }
+
+    private boolean tableHasField(String table, String field) {
+        try {
+            return mdm.getLayout(table).schema().hasField(field);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private ColumnKind kindFromField(String table, String field) {
+        try {
+            Schema schema = mdm.getLayout(table).schema();
+            return switch (schema.fieldType(field)) {
+                case INT -> ColumnKind.INT;
+                case STRING -> ColumnKind.STRING;
+            };
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Unknown column: " + table + "." + field, e);
+        }
+    }
+
     private static List<String> schemaFields(Schema s) {
         // プロジェクトの Schema に合わせて取得（fields(), fieldNames() 等）
         // 下は一般的な実装例。プロジェクトの実装に応じて必要ならメソッド名を合わせてください。
@@ -237,16 +438,37 @@ public class SimpleIJ {
         }
     }
 
-    private static String read(Scan s, String field) {
+    private static String read(Scan s, ColumnDisplay column) {
+        return switch (column.kind()) {
+            case STRING -> readString(s, column.name());
+            case INT -> readInt(s, column.name());
+        };
+    }
+
+    private static String readString(Scan s, String field) {
+        try {
+            String v = s.getString(field);
+            if (v != null)
+                return v;
+        } catch (Exception ignore) {
+        }
+        return readInt(s, field);
+    }
+
+    private static String readInt(Scan s, String field) {
         try {
             return Integer.toString(s.getInt(field));
         } catch (Exception ignore) {
         }
-        try {
-            return s.getString(field);
-        } catch (Exception ignore) {
-        }
         return "-";
+    }
+
+    private enum ColumnKind {
+        INT,
+        STRING
+    }
+
+    private record ColumnDisplay(String name, ColumnKind kind) {
     }
 
     private static String strip(String name) {
@@ -278,15 +500,25 @@ public class SimpleIJ {
             Layout l = mdm.getLayout(t);
             TableFile f = new TableFile(fm, t + ".tbl", l);
             try (TableScan ts = new TableScan(fm, f)) {
-                ts.insert();
-                ts.setInt("id", 1);
-                ts.setString("name", "Ada");
-                ts.insert();
-                ts.setInt("id", 2);
-                ts.setString("name", "Ada");
-                ts.insert();
-                ts.setInt("id", 3);
-                ts.setString("name", "Turing");
+                ts.enableIndexMaintenance(mdm, t);
+                String[] baseNames = {
+                        "Ada", "Alan", "Grace", "Donald", "Edsger",
+                        "Barbara", "Ken", "Margaret", "Linus", "Yukihiro"
+                };
+                String[] cohorts = { "A", "B", "C", "D", "E" };
+                int id = 1;
+                for (String base : baseNames) {
+                    for (String cohort : cohorts) {
+                        ts.insert();
+                        ts.setInt("id", id++);
+                        String label = cohort.equals("A") ? base : base + " " + cohort;
+                        ts.setString("name", label);
+                    }
+                    // intentional duplicates for frequency tests
+                    ts.insert();
+                    ts.setInt("id", id++);
+                    ts.setString("name", base);
+                }
             }
         }
         // scores(student_id:int, score:int)
@@ -297,21 +529,20 @@ public class SimpleIJ {
             Layout l = mdm.getLayout(t);
             TableFile f = new TableFile(fm, t + ".tbl", l);
             try (TableScan ts = new TableScan(fm, f)) {
-                ts.insert();
-                ts.setInt("student_id", 1);
-                ts.setInt("score", 70);
-                ts.insert();
-                ts.setInt("student_id", 1);
-                ts.setInt("score", 90);
-                ts.insert();
-                ts.setInt("student_id", 2);
-                ts.setInt("score", 60);
-                ts.insert();
-                ts.setInt("student_id", 2);
-                ts.setInt("score", 80);
-                ts.insert();
-                ts.setInt("student_id", 2);
-                ts.setInt("score", 100);
+                ts.enableIndexMaintenance(mdm, t);
+                int studentId = 1;
+                for (int batch = 0; batch < 10; batch++) {
+                    for (int member = 0; member < 6; member++) {
+                        int sid = studentId++;
+                        int base = 55 + (batch * 3) + (member * 2);
+                        for (int attempt = 0; attempt < 3; attempt++) {
+                            ts.insert();
+                            ts.setInt("student_id", sid);
+                            int score = base + attempt * 7 + (sid % 5);
+                            ts.setInt("score", Math.min(score, 100));
+                        }
+                    }
+                }
             }
         }
     }
@@ -334,6 +565,17 @@ public class SimpleIJ {
             } catch (Exception ignore) {
             }
         }
+
+        // create dir if ./data not exists
+        static void ensureDataDir() {
+            try {
+                java.nio.file.Path p = java.nio.file.Path.of("./data");
+                if (!java.nio.file.Files.exists(p)) {
+                    java.nio.file.Files.createDirectories(p);
+                }
+            } catch (Exception ignore) {
+            }
+        }
     }
 
     /** 超簡易テーブルプリンタ（等幅） */
@@ -341,8 +583,8 @@ public class SimpleIJ {
         private final List<String> headers;
         private final List<List<String>> rows = new ArrayList<>();
 
-        TablePrinter(List<String> headers) {
-            this.headers = headers;
+        TablePrinter(List<ColumnDisplay> columns) {
+            this.headers = columns.stream().map(ColumnDisplay::name).collect(Collectors.toList());
         }
 
         void addRow(List<String> r) {
@@ -386,6 +628,56 @@ public class SimpleIJ {
 
         private static String safe(List<String> r, int i) {
             return (i < r.size() && r.get(i) != null) ? r.get(i) : "";
+        }
+    }
+
+    private void runCreateIndex(Ast.CreateIndexStmt ci) throws Exception {
+        boolean metaRegistered = false;
+        final String idxFile = ci.indexName + ".idx"; // BTreeIndex が使う既定の物理名に合わせる
+        app.index.btree.BTreeIndex idx = null;
+        try {
+            // 1) 先にメタ登録（重複チェック） 以降の失敗時は roll back
+            mdm.createIndex(ci.indexName, ci.tableName, ci.columnName);
+            metaRegistered = true;
+
+            // 2) 物理インデックスを開いてビルド
+            idx = new app.index.btree.BTreeIndex(fm, ci.indexName, ci.tableName + ".tbl");
+            idx.open();
+
+            // 3) 全件スキャンして (key, RID) を投入
+            TableFile tf = new TableFile(fm, ci.tableName + ".tbl", mdm.getLayout(ci.tableName));
+            try (TableScan ts = new TableScan(fm, tf)) {
+                ts.beforeFirst();
+                while (ts.next()) {
+                    SearchKey key = SearchKey.ofInt(ts.getInt(ci.columnName));
+                    RID rid = ts.rid();
+                    idx.insert(key, rid);
+                }
+            }
+        } catch (Exception buildEx) {
+            // --- rollback ---
+            try {
+                if (idx != null)
+                    idx.close();
+            } catch (Exception ignore) {
+            }
+            // メタデータの登録を取り消し
+            if (metaRegistered) {
+                try {
+                    mdm.dropIndex(ci.indexName);
+                } catch (Exception ignore) {
+                }
+            }
+            // 物理 .idx を削除
+            fm.deleteFileIfExists(idxFile);
+            throw new RuntimeException("CREATE INDEX failed and was rolled back: " + ci.indexName, buildEx);
+        } finally {
+            // 念のため close（成功時/例外時とも）
+            try {
+                if (idx != null)
+                    idx.close();
+            } catch (Exception ignore) {
+            }
         }
     }
 }

@@ -7,6 +7,11 @@ public final class Lexer {
     private int i = 0;
     private String text;
     private TokenType type;
+    private String word;
+
+    public boolean isWord(String s) {
+        return word != null && word.equalsIgnoreCase(s);
+    }
 
     public Lexer(String sql) {
         this.s = sql;
@@ -182,9 +187,54 @@ public final class Lexer {
             case "DESC":
                 type = TokenType.DESC;
                 break;
+            case "EXPLAIN":
+                type = TokenType.EXPLAIN;
+                break;
+            case "INSERT":
+                type = TokenType.INSERT;
+                break;
+            case "INTO":
+                type = TokenType.INTO;
+                break;
+            case "VALUES":
+                type = TokenType.VALUES;
+                break;
+            case "UPDATE":
+                type = TokenType.UPDATE;
+                break;
+            case "SET":
+                type = TokenType.SET;
+                break;
+            case "DELETE":
+                type = TokenType.DELETE;
+                break;
+            case "DROP":
+                type = TokenType.DROP;
+                break;
+            case "CREATE":
+                type = TokenType.CREATE;
+                break;
+            case "TABLE":
+                type = TokenType.TABLE;
+                break;
+            case "INDEX":
+                type = TokenType.INDEX;
+                break;
+            case "USING":
+                type = TokenType.USING;
+                break;
+            case "BTREE":
+                type = TokenType.BTREE;
+                break;
+            case "BETWEEN":
+                type = TokenType.BETWEEN;
+                break;
+            case "NOT":
+                type = TokenType.NOT;
+                break;
             default:
                 type = TokenType.IDENT;
-                raw = raw;
+                // raw = raw;
                 break;
         }
         text = raw;

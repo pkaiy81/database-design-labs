@@ -1,10 +1,16 @@
 package app.metadata;
 
+import app.index.btree.BTreeIndex;
 import app.record.*;
 import app.storage.FileMgr;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * システムカタログ管理:
@@ -27,6 +33,9 @@ public final class MetadataManager {
     private final TableFile tblcat;
     private final TableFile fldcat;
 
+    private final Layout idxcatLayout;
+    private final TableFile idxcat;
+
     public MetadataManager(FileMgr fm) {
         this.fm = fm;
 
@@ -45,18 +54,29 @@ public final class MetadataManager {
                 .addInt("offset");
         this.fldcatLayout = new Layout(f);
 
+        Schema i = new Schema()
+                .addString("iname", 64)
+                .addString("tname", 64)
+                .addString("fname", 64);
+        this.idxcatLayout = new Layout(i);
+
         this.tblcat = new TableFile(fm, "tblcat.tbl", tblcatLayout);
         this.fldcat = new TableFile(fm, "fldcat.tbl", fldcatLayout);
+        this.idxcat = new TableFile(fm, "idxcat.tbl", idxcatLayout);
 
         // 初回起動時の空ページ確保（ファイルが0ブロックなら1ブロック作る）
         if (tblcat.size() == 0)
             tblcat.appendFormatted();
         if (fldcat.size() == 0)
             fldcat.appendFormatted();
+        if (idxcat.size() == 0)
+            idxcat.appendFormatted();
     }
 
     /** ユーザー定義テーブルの作成（カタログにレコード追加） */
     public void createTable(String tblname, Schema schema) {
+        if (tableExists(tblname))
+            throw new IllegalArgumentException("table already exists: " + tblname);
         // Layout を一度作って recordSize を求める
         Layout layout = new Layout(schema);
         int slotSize = layout.recordSize();
@@ -85,6 +105,17 @@ public final class MetadataManager {
                 scan.setInt("offset", off);
             }
         }
+    }
+
+    private boolean tableExists(String tblname) {
+        try (TableScan scan = new TableScan(fm, tblcat)) {
+            scan.beforeFirst();
+            while (scan.next()) {
+                if (tblname.equals(scan.getString("tblname")))
+                    return true;
+            }
+        }
+        return false;
     }
 
     /** カタログから Layout を復元 */
@@ -142,4 +173,221 @@ public final class MetadataManager {
         // Layout は新規計算（offset は一致する想定）
         return new Layout(schema);
     }
+
+    public void createIndex(String iname, String tname, String fname) {
+        try (TableScan s = new TableScan(fm, idxcat)) {
+            s.beforeFirst();
+            while (s.next()) {
+                if (iname.equals(s.getString("iname"))) {
+                    throw new IllegalArgumentException("Index already exists: " + iname);
+                }
+            }
+            s.insert();
+            s.setString("iname", iname);
+            s.setString("tname", tname);
+            s.setString("fname", fname);
+        }
+    }
+
+    public boolean dropTable(String tblname) {
+        if (!tableExists(tblname))
+            return false;
+
+        // 関連するインデックスを記録してから削除
+        List<String> indexes = new ArrayList<>();
+        try (TableScan s = new TableScan(fm, idxcat)) {
+            s.beforeFirst();
+            while (s.next()) {
+                if (tblname.equals(s.getString("tname"))) {
+                    indexes.add(s.getString("iname"));
+                }
+            }
+        }
+        for (String idx : indexes) {
+            dropIndex(idx);
+        }
+
+        // fldcat からカラム情報を削除
+        try (TableScan s = new TableScan(fm, fldcat)) {
+            s.beforeFirst();
+            while (s.next()) {
+                if (tblname.equals(s.getString("tblname"))) {
+                    s.delete();
+                }
+            }
+        }
+
+        // tblcat からテーブル本体を削除
+        try (TableScan s = new TableScan(fm, tblcat)) {
+            s.beforeFirst();
+            while (s.next()) {
+                if (tblname.equals(s.getString("tblname"))) {
+                    s.delete();
+                    break;
+                }
+            }
+        }
+
+        // 物理テーブルファイルを削除
+        fm.deleteFileIfExists(tblname + ".tbl");
+        return true;
+    }
+
+    /**
+     * 途中失敗時のロールバック用：createIndex で登録した内容を取り消す.
+     * indexName をキーに idxcat から当該エントリを削除する.
+     */
+    public boolean dropIndex(String indexName) {
+        boolean removed = false;
+        try (TableScan s = new TableScan(fm, idxcat)) {
+            s.beforeFirst();
+            while (s.next()) {
+                if (indexName.equals(s.getString("iname"))) {
+                    s.delete();
+                    removed = true;
+                    break;
+                }
+            }
+        }
+        if (!removed)
+            return false;
+
+        try {
+            if (!BTreeIndex.drop(fm, indexName)) {
+                // ベストエフォート削除。既に無い場合は問題なし。
+            }
+        } catch (Exception e) {
+            System.err.println("[WARN] Failed to remove index file for " + indexName + ": " + e.getMessage());
+        }
+        return true;
+    }
+
+    public java.util.List<String> getIndexesOn(String tname, String fname) {
+        java.util.ArrayList<String> list = new java.util.ArrayList<>();
+        try (TableScan s = new TableScan(fm, idxcat)) {
+            s.beforeFirst();
+            while (s.next()) {
+                if (tname.equals(s.getString("tname")) && fname.equals(s.getString("fname")))
+                    list.add(s.getString("iname"));
+            }
+        }
+        return list;
+    }
+
+    private String resolveIdxCol(Schema schema, String... pref) {
+        for (String c : pref)
+            if (schema.hasField(c) && schema.fieldType(c) == FieldType.STRING)
+                return c;
+        for (String f : schema.fields().keySet())
+            if (schema.fieldType(f) == FieldType.STRING)
+                return f;
+        throw new IllegalStateException("idxcat has no suitable STRING column");
+    }
+
+    public java.util.List<String> listIndexesFormatted() {
+        java.util.ArrayList<String> list = new java.util.ArrayList<>();
+        try (TableScan s = new TableScan(fm, idxcat)) {
+            s.beforeFirst();
+            Schema sc = idxcatLayout.schema();
+            String inCol = resolveIdxCol(sc, "iname", "index", "name");
+            String tnCol = resolveIdxCol(sc, "tname", "table", "tbl", "tblname");
+            String fnCol = resolveIdxCol(sc, "fname", "column", "col", "field", "fldname");
+            while (s.next()) {
+                String in = s.getString(inCol);
+                String tn = s.getString(tnCol);
+                String fn = s.getString(fnCol);
+                list.add(in + " ON " + tn + "(" + fn + ")");
+            }
+        }
+        return list;
+    }
+
+    // スキーマから最適な「テーブル名」列を解決するヘルパ
+    private String resolveTableNameColumn(Schema schema) {
+        // よくある候補を優先
+        String[] candidates = { "tname", "name", "table", "tbl", "tblname" };
+        for (String c : candidates) {
+            if (schema.hasField(c) && schema.fieldType(c) == FieldType.STRING)
+                return c;
+        }
+        // フォールバック: 最初の STRING 列
+        for (String f : schema.fields().keySet()) {
+            if (schema.fieldType(f) == FieldType.STRING)
+                return f;
+        }
+        throw new IllegalStateException("tblcat has no suitable STRING column for table name");
+    }
+
+    public java.util.List<String> listTableNames() {
+        java.util.ArrayList<String> list = new java.util.ArrayList<>();
+        try (TableScan s = new TableScan(fm, tblcat)) {
+            s.beforeFirst();
+            String nameCol = resolveTableNameColumn(tblcatLayout.schema());
+            while (s.next()) {
+                list.add(s.getString(nameCol));
+            }
+        }
+        return list;
+    }
+
+    public Optional<String> showCreateTable(String tblname) {
+        if (!tableExists(tblname))
+            return Optional.empty();
+        List<ColumnMetadata> columns = loadColumnMetadata(tblname);
+        if (columns.isEmpty())
+            return Optional.of("CREATE TABLE " + tblname + " ();" );
+        String cols = columns.stream()
+                .map(col -> "  " + col.name() + " " + formatColumnType(col))
+                .collect(Collectors.joining(",\n"));
+        return Optional.of("CREATE TABLE " + tblname + " (\n" + cols + "\n);");
+    }
+
+    private String formatColumnType(ColumnMetadata col) {
+        return switch (col.type()) {
+            case INT -> "INT";
+            case STRING -> "STRING(" + Math.max(1, col.lengthBytes() / 4) + ")";
+        };
+    }
+
+    private List<ColumnMetadata> loadColumnMetadata(String tblname) {
+        List<ColumnMetadata> cols = new ArrayList<>();
+        try (TableScan s = new TableScan(fm, fldcat)) {
+            s.beforeFirst();
+            while (s.next()) {
+                if (!tblname.equals(s.getString("tblname")))
+                    continue;
+                String fld = s.getString("fldname");
+                int typeCode = s.getInt("type");
+                int length = s.getInt("length");
+                int offset = s.getInt("offset");
+                FieldType type = (typeCode == 0) ? FieldType.INT : FieldType.STRING;
+                cols.add(new ColumnMetadata(fld, type, length, offset));
+            }
+        }
+        cols.sort(Comparator.comparingInt(ColumnMetadata::offset));
+        return cols;
+    }
+
+    private record ColumnMetadata(String name, FieldType type, int lengthBytes, int offset) {
+    }
+
+    // (table, column) に紐づく index 名を1つ返す（複数ある場合は最初の1つ）
+    public Optional<String> findIndexOn(String table, String column) {
+        try (TableScan s = new TableScan(fm, idxcat)) {
+            s.beforeFirst();
+            // 列名解決ヘルパ（前回追加）を使うのが安全
+            var sc = idxcatLayout.schema();
+            String inCol = resolveIdxCol(sc, "iname", "index", "name");
+            String tnCol = resolveIdxCol(sc, "tname", "table", "tbl", "tblname");
+            String fnCol = resolveIdxCol(sc, "fname", "column", "col", "field", "fldname");
+
+            while (s.next()) {
+                if (table.equals(s.getString(tnCol)) && column.equals(s.getString(fnCol))) {
+                    return Optional.of(s.getString(inCol));
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
 }

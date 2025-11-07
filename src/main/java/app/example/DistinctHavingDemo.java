@@ -22,6 +22,7 @@ public class DistinctHavingDemo {
         Layout l1 = mdm.getLayout(t1);
         TableFile f1 = new TableFile(fm, "names.tbl", l1);
         try (TableScan ts = new TableScan(fm, f1)) {
+            ts.enableIndexMaintenance(mdm, t1);
             ts.insert();
             ts.setInt("id", 1);
             ts.setString("name", "Ada");
@@ -40,6 +41,7 @@ public class DistinctHavingDemo {
         Layout l2 = mdm.getLayout(t2);
         TableFile f2 = new TableFile(fm, "scores.tbl", l2);
         try (TableScan ts = new TableScan(fm, f2)) {
+            ts.enableIndexMaintenance(mdm, t2);
             ts.insert();
             ts.setInt("student_id", 1);
             ts.setInt("score", 70);
