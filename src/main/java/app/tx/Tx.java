@@ -6,6 +6,8 @@ import app.memory.LogManager;
 import app.storage.BlockId;
 import app.storage.FileMgr;
 import app.storage.Page;
+import app.tx.lock.LockManager;
+import app.tx.lock.LockTable;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -13,12 +15,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public final class Tx implements AutoCloseable {
     private static final AtomicInteger SEQ = new AtomicInteger(1);
+    private static final LockTable LOCK_TABLE = new LockTable();
 
     private final int txId;
     private final FileMgr fm;
     private final BufferMgr bm;
     private final LogManager log;
     private final Path logDir;
+    private final LockManager lockMgr;
 
     public Tx(FileMgr fm, BufferMgr bm, LogManager log, Path logDir) {
         this.txId = SEQ.getAndIncrement();
@@ -26,6 +30,7 @@ public final class Tx implements AutoCloseable {
         this.bm = bm;
         this.log = log;
         this.logDir = logDir;
+        this.lockMgr = new LockManager(LOCK_TABLE);
         // START ログ
         log.append(LogCodec.start(txId));
     }
@@ -34,8 +39,50 @@ public final class Tx implements AutoCloseable {
         return txId;
     }
 
+    /**
+     * 指定されたブロックとオフセットから整数値を読み取ります。
+     * 読み取り前に共有ロック（S-Lock）を取得します。
+     * 
+     * @param blk 読み取り対象のブロック
+     * @param offset ブロック内のオフセット
+     * @return 読み取った整数値
+     */
+    public int getInt(BlockId blk, int offset) {
+        // 共有ロックを取得
+        lockMgr.sLock(blk, txId);
+        
+        Buffer buf = bm.pin(blk);
+        try {
+            return buf.contents().getInt(offset);
+        } finally {
+            bm.unpin(buf);
+        }
+    }
+
+    /**
+     * 指定されたブロックとオフセットから文字列を読み取ります。
+     * 読み取り前に共有ロック（S-Lock）を取得します。
+     * 
+     * @param blk 読み取り対象のブロック
+     * @param offset ブロック内のオフセット
+     * @return 読み取った文字列
+     */
+    public String getString(BlockId blk, int offset) {
+        // 共有ロックを取得
+        lockMgr.sLock(blk, txId);
+        
+        Buffer buf = bm.pin(blk);
+        try {
+            return buf.contents().getString(offset);
+        } finally {
+            bm.unpin(buf);
+        }
+    }
+
     // setInt: WAL → flush(log) → ページ更新 → dirty → flush(page)
     public void setInt(BlockId blk, int offset, int newVal) {
+        // 排他ロックを取得
+        lockMgr.xLock(blk, txId);
         Buffer buf = bm.pin(blk);
         try {
             Page p = buf.contents();
@@ -57,6 +104,34 @@ public final class Tx implements AutoCloseable {
         }
     }
 
+    /**
+     * 指定されたブロックとオフセットに文字列を書き込みます。
+     * 書き込み前に排他ロック（X-Lock）を取得します。
+     * 
+     * @param blk 書き込み対象のブロック
+     * @param offset ブロック内のオフセット
+     * @param newVal 書き込む文字列
+     */
+    public void setString(BlockId blk, int offset, String newVal) {
+        // 排他ロックを取得
+        lockMgr.xLock(blk, txId);
+        
+        Buffer buf = bm.pin(blk);
+        try {
+            Page p = buf.contents();
+            // 文字列の場合、旧値のログは省略（簡易実装）
+            
+            // ページ更新
+            p.setString(offset, newVal);
+            buf.setDirty();
+            
+            // データをフラッシュ
+            buf.flushIfDirty();
+        } finally {
+            bm.unpin(buf);
+        }
+    }
+
     /** commit: ここでは dirty を明示 flush → COMMIT ログ */
     public void commit() {
         // 実運用のWALでは「ログ先flush→データflush」の順。
@@ -64,6 +139,9 @@ public final class Tx implements AutoCloseable {
         // シンプルのため Buffer が持つ flushIfDirty を使うなら、置換時/終了時に呼ばれる想定。
         log.append(LogCodec.commit(txId));
         log.flush(0);
+        
+        // すべてのロックを解放（Strict 2PL）
+        lockMgr.release(txId);
     }
 
     /** rollback: 自Txのログを後ろ向きに辿り、SET_INT を元に戻す */
@@ -89,6 +167,9 @@ public final class Tx implements AutoCloseable {
         }
         log.append(LogCodec.rollback(txId));
         log.flush(0);
+        
+        // すべてのロックを解放（Strict 2PL）
+        lockMgr.release(txId);
     }
 
     @Override
