@@ -98,51 +98,79 @@
 ### **Phase 1: 並行制御の完全実装** 🔒
 
 **目標**: マルチスレッド環境でのデータ整合性確保  
-**期間**: 2-3週間
+**期間**: 2-3週間  
+**状態**: 🟢 **Week 1完了** (2025-11-16)  
+**ブランチ**: `feature/phase1-locking`
 
-#### 1.1 ロック管理 (`app.tx.lock`)
+#### 1.1 ロック管理 (`app.tx.lock`) ✅ **完了**
 
 ```java
-// 新規作成ファイル
-- LockTable.java          // グローバルロックテーブル
-- LockManager.java        // トランザクション毎のロック管理
-- LockType.java          // SHARED / EXCLUSIVE
-- DeadlockDetector.java  // デッドロック検出
+// 作成済みファイル
+✅ LockType.java          // SHARED / EXCLUSIVE enum
+✅ Lock.java              // 単一ブロックのロック管理
+✅ LockAbortException.java // タイムアウト例外
+✅ LockTable.java         // グローバルロックテーブル
+✅ LockManager.java       // トランザクション毎のロック追跡
+⏳ DeadlockDetector.java  // デッドロック検出（Week 2予定）
 ```
 
-**実装項目**:
+**実装完了項目**:
 
-- [ ] Two-Phase Locking (2PL) プロトコル
-- [ ] Shared Lock / Exclusive Lock
-- [ ] ロック取得・解放API
-- [ ] デッドロック検出（Wait-For Graph）
-- [ ] タイムアウト機構
+- [x] **Strict Two-Phase Locking (2PL)** プロトコル
+- [x] **Shared Lock / Exclusive Lock**
+- [x] **ロック取得・解放API** (`sLock/xLock/unlock`)
+- [x] **ロックアップグレード** (S→X)
+- [x] **タイムアウト機構** (デフォルト10秒)
+- [x] **FIFO待機キュー** (公平性保証)
+- [ ] デッドロック検出（Wait-For Graph）← **Week 2で実装予定**
 
-**変更ファイル**:
+**変更済みファイル**:
 
-- `Tx.java`: ロック取得をsetInt/getString前に追加
-- `TableScan.java`: レコードロック統合
+- ✅ `Tx.java`: getInt/getString→sLock, setInt/setString→xLock, commit/rollback→release
+- ⏳ `TableScan.java`: レコードロック統合（Week 3予定）
 
-#### 1.2 分離レベル (`app.tx.isolation`)
+**テスト状況**:
+
+- [x] **単体テスト**: 30テスト全て成功 ✅
+  - `LockTest.java` (10テスト)
+  - `LockTableTest.java` (6テスト)
+  - `LockManagerTest.java` (9テスト)
+  - `ConcurrencyTest.java` (5テスト)
+- [x] **デモプログラム**: `LockingDemo.java` 実行成功
+  - Lost Update 防止 ✅
+  - Dirty Read 防止 ✅
+  - 共有ロック（複数読み取り）✅
+
+**ドキュメント**:
+
+- [x] `docs/LOCKING_LOGIC_DIAGRAMS.md` 完成
+  - アーキテクチャ図
+  - シーケンス図
+  - 状態遷移図
+  - Strict 2PL プロトコル説明
+
+#### 1.2 分離レベル (`app.tx.isolation`) ⏳ **Week 2予定**
 
 ```java
+// Week 2で作成予定
 - IsolationLevel.java    // READ_UNCOMMITTED, READ_COMMITTED, etc.
-- TxManager.java         // トランザクション管理
+- DeadlockDetector.java  // Wait-For Graph実装
 ```
 
-**実装項目**:
+**実装予定項目**:
 
 - [ ] READ UNCOMMITTED
 - [ ] READ COMMITTED
 - [ ] REPEATABLE READ
 - [ ] SERIALIZABLE
+- [ ] Wait-For Graph によるデッドロック検出
+- [ ] Victim 選択と自動ロールバック
 
-**テスト**:
+**追加テスト計画**:
 
-- [ ] 並行トランザクションテスト
-- [ ] Lost Update防止テスト
-- [ ] Dirty Read防止テスト
+- [ ] Non-repeatable Read防止テスト
 - [ ] Phantom Read防止テスト
+- [ ] デッドロック検出テスト
 
 ---
 
