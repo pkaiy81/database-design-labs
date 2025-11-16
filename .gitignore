@@ -35,3 +35,4 @@ Description.md
 # Ignore Gradle build output directory
 build
 data
+data-demo

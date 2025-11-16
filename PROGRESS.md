@@ -63,36 +63,63 @@
 
 **開始日**: 2025-11-16  
 **期限**: 2025-12-07 (3週間)  
-**担当者**: -
+**担当者**: -  
+**ブランチ**: `feature/phase1-locking`
 
-### Week 1: ロック管理基盤
+### Week 1: ロック管理基盤 ✅ **完了** (2025-11-16)
 
-- [ ] `LockType` enum 作成
-  - [ ] コード実装
-  - [ ] Javadoc 追加
-- [ ] `Lock` クラス作成
-  - [ ] Shared lock 取得
-  - [ ] Exclusive lock 取得
-  - [ ] ロック解放
-  - [ ] 待機キュー管理
-  - [ ] タイムアウト処理
-  - [ ] 単体テスト
-- [ ] `LockTable` クラス作成
-  - [ ] グローバルロックテーブル
-  - [ ] スレッドセーフな実装
-  - [ ] 単体テスト
-- [ ] `LockManager` クラス作成
-  - [ ] トランザクション毎のロック追跡
-  - [ ] ロック取得API
-  - [ ] 一括解放
-  - [ ] 単体テスト
-- [ ] `Tx` クラスへの統合
-  - [ ] getInt/getString に sLock 追加
-  - [ ] setInt/setString に xLock 追加
-  - [ ] commit/rollback でロック解放
-  - [ ] 統合テスト
+- [x] `LockType` enum 作成
+  - [x] コード実装 (`src/main/java/app/tx/lock/LockType.java`)
+  - [x] Javadoc 追加
+  - [x] SHARED/EXCLUSIVE の2種類
+  - [x] `isCompatibleWith()` メソッドで互換性チェック
+- [x] `Lock` クラス作成
+  - [x] Shared lock 取得
+  - [x] Exclusive lock 取得
+  - [x] ロック解放
+  - [x] 待機キュー管理 (FIFO)
+  - [x] タイムアウト処理 (デフォルト10秒)
+  - [x] ロックアップグレード対応
+  - [x] 単体テスト (10テスト)
+- [x] `LockTable` クラス作成
+  - [x] グローバルロックテーブル
+  - [x] スレッドセーフな実装 (`ConcurrentHashMap`)
+  - [x] 単体テスト (6テスト)
+- [x] `LockManager` クラス作成
+  - [x] トランザクション毎のロック追跡
+  - [x] ロック取得API (`sLock/xLock`)
+  - [x] 一括解放 (`release`)
+  - [x] 単体テスト (9テスト)
+- [x] `LockAbortException` 作成
+  - [x] タイムアウト時の例外処理
+- [x] `Tx` クラスへの統合
+  - [x] getInt/getString に sLock 追加
+  - [x] setInt/setString に xLock 追加
+  - [x] commit/rollback でロック解放
+  - [x] 統合テスト
+- [x] 並行トランザクションテスト
+  - [x] Lost Update 防止テスト (5テスト)
+  - [x] Dirty Read 防止テスト
+  - [x] ロックアップグレードテスト
+  - [x] 並行アクセステスト
+- [x] デモプログラム作成
+  - [x] `LockingDemo.java` 作成
+  - [x] Lost Update 防止デモ
+  - [x] Dirty Read 防止デモ
+  - [x] 共有ロック（複数読み取り）デモ
+  - [x] 実行確認 ✅
+- [x] ドキュメント作成
+  - [x] `docs/LOCKING_LOGIC_DIAGRAMS.md` 作成
+  - [x] アーキテクチャ図
+  - [x] シーケンス図
+  - [x] 状態遷移図
+  - [x] Strict 2PL プロトコル図
+  - [x] 使用例とトラブルシューティング
 
-### Week 2: デッドロック検出と分離レベル
+**テスト結果**: 30テスト全て成功 ✅  
+**コミット**: 完了 (feature/phase1-locking ブランチ)
+
+### Week 2: デッドロック検出と分離レベル ⏳ **次のステップ**
 
 - [ ] Wait-For Graph 実装
   - [ ] グラフ構築
@@ -113,30 +140,24 @@
   - [ ] 述語ロック (SERIALIZABLE)
   - [ ] 統合テスト
 
-### Week 3: 統合とテスト
+### Week 3: TableScan統合とパフォーマンス
 
 - [ ] `TableScan` へのロック統合
   - [ ] next() に sLock
   - [ ] insert/update/delete に xLock
   - [ ] テスト
-- [ ] 並行トランザクションテスト
-  - [ ] Lost Update 防止テスト
-  - [ ] Dirty Read 防止テスト
+- [ ] 追加の並行テスト
   - [ ] Non-repeatable Read テスト
   - [ ] Phantom Read テスト
 - [ ] パフォーマンステスト
   - [ ] ロック競合下でのスループット
   - [ ] デッドロック検出のオーバーヘッド
-- [ ] ドキュメント作成
-  - [ ] ロック戦略ドキュメント
-  - [ ] API ドキュメント
-  - [ ] 使用例
 - [ ] コードレビュー
   - [ ] PR 作成
   - [ ] レビュー対応
   - [ ] マージ
 
-**完了率**: 0% (0/30)
+**完了率**: 53% (16/30タスク完了)
 
 ---
 

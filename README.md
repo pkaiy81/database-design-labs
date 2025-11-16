@@ -600,7 +600,31 @@ This project is for educational purposes.
 
 ### バージョニング
 
-* Current: `v0.16.0`（DDL/DML/DQL 完全対応、B+木インデックス）
-* ブランチ: `feature/create-drop-table`
+* Current: `v0.17.0`（Phase 1 Week 1: ロック機能実装完了）
+* ブランチ: `feature/phase1-locking`
 
 ### 最近の更新
+
+#### v0.17.0 (2025-11-16) - Phase 1 Week 1: ロック管理基盤
+
+**新機能:**
+* ✅ **Strict Two-Phase Locking (2PL)** 実装
+* ✅ **Shared Lock / Exclusive Lock** (`LockType`, `Lock`, `LockTable`, `LockManager`)
+* ✅ **FIFO待機キュー** でロック取得の公平性保証
+* ✅ **タイムアウト機構** (デフォルト10秒)
+* ✅ **ロックアップグレード** (S→X) 対応
+* ✅ **トランザクション統合**: `Tx`クラスで自動ロック取得・解放
+
+**テスト:**
+* ✅ 単体テスト 30件全て成功
+* ✅ 並行トランザクションテスト (Lost Update防止、Dirty Read防止)
+* ✅ デモプログラム (`LockingDemo.java`) 実行成功
+
+**ドキュメント:**
+* ✅ `docs/LOCKING_LOGIC_DIAGRAMS.md` - ロックシステムの詳細図
+
+**次のステップ:**
+* ⏳ Phase 1 Week 2: デッドロック検出 (Wait-For Graph)
+* ⏳ Phase 1 Week 3: 分離レベル、TableScan統合
+
+#### v0.16.0 - DDL/DML/DQL 完全対応
