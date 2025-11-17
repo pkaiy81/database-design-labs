@@ -46,6 +46,12 @@ public class LockTable {
     /** ロック取得時のタイムアウト時間（ミリ秒） */
     private final long timeoutMs;
 
+    /** Wait-For Graph for deadlock detection (optional) */
+    private WaitForGraph waitForGraph;
+
+    /** Deadlock detector (optional) */
+    private DeadlockDetector deadlockDetector;
+
     /**
      * デフォルトのタイムアウト時間（10秒）でロックテーブルを作成します。
      */
@@ -61,6 +67,62 @@ public class LockTable {
     public LockTable(long timeoutMs) {
         this.locks = new ConcurrentHashMap<>();
         this.timeoutMs = timeoutMs;
+    }
+
+    /**
+     * Enables deadlock detection using a Wait-For Graph.
+     * 
+     * <p>This should be called once during system initialization.
+     * When enabled, the lock table will:
+     * <ul>
+     *   <li>Track wait-for relationships between transactions</li>
+     *   <li>Periodically detect deadlock cycles</li>
+     *   <li>Automatically abort victim transactions</li>
+     * </ul>
+     * 
+     * @param detectionIntervalMs interval between deadlock checks (milliseconds)
+     */
+    public synchronized void enableDeadlockDetection(long detectionIntervalMs) {
+        if (waitForGraph != null) {
+            throw new IllegalStateException("Deadlock detection is already enabled");
+        }
+        
+        this.waitForGraph = new WaitForGraph();
+        this.deadlockDetector = new DeadlockDetector(waitForGraph, detectionIntervalMs);
+        
+        // TODO: Set abort callback - this requires integration with transaction management
+        // deadlockDetector.setAbortCallback(txNum -> abortTransaction(txNum));
+        
+        deadlockDetector.start();
+    }
+
+    /**
+     * Disables deadlock detection and stops the detector thread.
+     */
+    public synchronized void disableDeadlockDetection() {
+        if (deadlockDetector != null) {
+            deadlockDetector.stop();
+            deadlockDetector = null;
+            waitForGraph = null;
+        }
+    }
+
+    /**
+     * Gets the Wait-For Graph if deadlock detection is enabled.
+     * 
+     * @return the wait-for graph, or null if not enabled
+     */
+    public WaitForGraph getWaitForGraph() {
+        return waitForGraph;
+    }
+
+    /**
+     * Gets the deadlock detector if enabled.
+     * 
+     * @return the deadlock detector, or null if not enabled
+     */
+    public DeadlockDetector getDeadlockDetector() {
+        return deadlockDetector;
     }
 
     /**

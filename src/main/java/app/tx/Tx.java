@@ -6,6 +6,7 @@ import app.memory.LogManager;
 import app.storage.BlockId;
 import app.storage.FileMgr;
 import app.storage.Page;
+import app.tx.lock.IsolationLevel;
 import app.tx.lock.LockManager;
 import app.tx.lock.LockTable;
 
@@ -23,16 +24,35 @@ public final class Tx implements AutoCloseable {
     private final LogManager log;
     private final Path logDir;
     private final LockManager lockMgr;
+    private final IsolationLevel isolationLevel;
 
     public Tx(FileMgr fm, BufferMgr bm, LogManager log, Path logDir) {
+        this(fm, bm, log, logDir, IsolationLevel.READ_COMMITTED);
+    }
+
+    public Tx(FileMgr fm, BufferMgr bm, LogManager log, Path logDir, IsolationLevel isolationLevel) {
         this.txId = SEQ.getAndIncrement();
         this.fm = fm;
         this.bm = bm;
         this.log = log;
         this.logDir = logDir;
+        this.isolationLevel = isolationLevel;
         this.lockMgr = new LockManager(LOCK_TABLE);
         // START ログ
         log.append(LogCodec.start(txId));
+    }
+
+    public IsolationLevel getIsolationLevel() {
+        return isolationLevel;
+    }
+
+    /**
+     * Gets the global lock table.
+     * 
+     * @return the lock table
+     */
+    public static LockTable getLockTable() {
+        return LOCK_TABLE;
     }
 
     public int id() {
@@ -41,19 +61,28 @@ public final class Tx implements AutoCloseable {
 
     /**
      * 指定されたブロックとオフセットから整数値を読み取ります。
-     * 読み取り前に共有ロック（S-Lock）を取得します。
+     * 読み取り前に共有ロック（S-Lock）を取得します（分離レベルに応じて）。
      * 
      * @param blk    読み取り対象のブロック
      * @param offset ブロック内のオフセット
      * @return 読み取った整数値
      */
     public int getInt(BlockId blk, int offset) {
-        // 共有ロックを取得
-        lockMgr.sLock(blk, txId);
+        // 分離レベルに応じてロックを取得
+        if (isolationLevel.usesReadLocks()) {
+            lockMgr.sLock(blk, txId);
+        }
 
         Buffer buf = bm.pin(blk);
         try {
-            return buf.contents().getInt(offset);
+            int value = buf.contents().getInt(offset);
+            
+            // READ_COMMITTED: 読み取り後すぐにロック解放
+            if (isolationLevel == IsolationLevel.READ_COMMITTED) {
+                lockMgr.unlock(blk, txId);
+            }
+            
+            return value;
         } finally {
             bm.unpin(buf);
         }
@@ -61,19 +90,28 @@ public final class Tx implements AutoCloseable {
 
     /**
      * 指定されたブロックとオフセットから文字列を読み取ります。
-     * 読み取り前に共有ロック（S-Lock）を取得します。
+     * 読み取り前に共有ロック（S-Lock）を取得します（分離レベルに応じて）。
      * 
      * @param blk    読み取り対象のブロック
      * @param offset ブロック内のオフセット
      * @return 読み取った文字列
      */
     public String getString(BlockId blk, int offset) {
-        // 共有ロックを取得
-        lockMgr.sLock(blk, txId);
+        // 分離レベルに応じてロックを取得
+        if (isolationLevel.usesReadLocks()) {
+            lockMgr.sLock(blk, txId);
+        }
 
         Buffer buf = bm.pin(blk);
         try {
-            return buf.contents().getString(offset);
+            String value = buf.contents().getString(offset);
+            
+            // READ_COMMITTED: 読み取り後すぐにロック解放
+            if (isolationLevel == IsolationLevel.READ_COMMITTED) {
+                lockMgr.unlock(blk, txId);
+            }
+            
+            return value;
         } finally {
             bm.unpin(buf);
         }

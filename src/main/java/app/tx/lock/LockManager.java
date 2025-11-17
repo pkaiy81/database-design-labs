@@ -104,6 +104,28 @@ public class LockManager {
     }
 
     /**
+     * 指定されたブロックに対するロックを解放します。
+     * 
+     * <p>
+     * このメソッドは、READ_COMMITTED分離レベルで読み取り直後にロックを解放する際に使用されます。
+     * 通常のStrict 2PLでは、トランザクション終了時まですべてのロックを保持するため、
+     * このメソッドは慎重に使用する必要があります。
+     * 
+     * @param blk   ロック対象のブロック
+     * @param txNum トランザクション番号
+     */
+    public void unlock(BlockId blk, int txNum) {
+        Set<BlockId> lockedBlocks = locks.get(txNum);
+        if (lockedBlocks != null && lockedBlocks.contains(blk)) {
+            lockTable.unlock(blk, txNum);
+            lockedBlocks.remove(blk);
+            if (lockedBlocks.isEmpty()) {
+                locks.remove(txNum);
+            }
+        }
+    }
+
+    /**
      * 指定されたトランザクションが保持しているすべてのロックを解放します。
      * 
      * <p>
