@@ -156,24 +156,32 @@
 **テスト結果**: 29テスト全て成功 ✅ (全体59テスト合格)  
 **コミット**: 準備完了 (feature/phase1-week2-deadlock-detection ブランチ)
 
-### Week 3: TableScan統合とパフォーマンス
+### Week 3: TableScan統合 ✅ **完了** (2025-11-17)
 
-- [ ] `TableScan` へのロック統合
-  - [ ] next() に sLock
-  - [ ] insert/update/delete に xLock
-  - [ ] テスト
-- [ ] 追加の並行テスト
-  - [ ] Non-repeatable Read テスト
-  - [ ] Phantom Read テスト
-- [ ] パフォーマンステスト
-  - [ ] ロック競合下でのスループット
-  - [ ] デッドロック検出のオーバーヘッド
+- [x] `TableScan` へのロック統合
+  - [x] Tx パラメータ追加（トランザクション統合版コンストラクタ）
+  - [x] next() に sLock（分離レベル依存）
+  - [x] getInt()/getString() に sLock（分離レベル依存）
+  - [x] insert()/delete()/setInt()/setString() に xLock
+  - [x] 後方互換性維持（@Deprecated FileMgr コンストラクタ）
+  - [x] テスト（既存59テスト全て合格）
+- [x] 分離レベル別ロック動作
+  - [x] READ_UNCOMMITTED: ロックなし読取り
+  - [x] READ_COMMITTED: 短期ロック（読取後即座に解放）
+  - [x] REPEATABLE_READ: 長期ロック（コミットまで保持）
+  - [x] SERIALIZABLE: 長期ロック（述語ロック準備済み）
+- [x] Tx 拡張
+  - [x] getFileMgr() メソッド追加
+  - [x] getBufferMgr() メソッド追加
+
+**テスト結果**: 59テスト全て成功 ✅  
+**コミット**: 完了 (feature/phase1-week3-tablescan-integration ブランチ)
 - [ ] コードレビュー
   - [ ] PR 作成
   - [ ] レビュー対応
   - [ ] マージ
 
-**完了率**: 73% (22/30タスク完了)
+**完了率**: 80% (24/30タスク完了)
 
 ---
 

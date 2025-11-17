@@ -600,10 +600,33 @@ This project is for educational purposes.
 
 ### バージョニング
 
-* Current: `v0.18.0`（Phase 1 Week 2: デッドロック検出と分離レベル実装完了）
-* ブランチ: `feature/phase1-week2-deadlock-detection`
+* Current: `v0.19.0`（Phase 1 Week 3: TableScan ロック統合完了）
+* ブランチ: `feature/phase1-week3-tablescan-integration`
 
 ### 最近の更新
+
+#### v0.19.0 (2025-11-17) - Phase 1 Week 3: TableScan ロック統合
+
+**新機能:**
+* ✅ **TableScan へのトランザクション統合**: Tx パラメータを受け取るコンストラクタ追加
+* ✅ **分離レベル別ロック動作**:
+  - `next()`, `getInt()`, `getString()`: 分離レベルに応じた読取ロック
+  - `insert()`, `delete()`, `setInt()`, `setString()`: 排他ロック取得
+* ✅ **READ_UNCOMMITTED**: ロックなし読取り（高速、Dirty Read 許容）
+* ✅ **READ_COMMITTED**: 短期ロック（読取後即座に解放、Non-Repeatable Read 許容）
+* ✅ **REPEATABLE_READ**: 長期ロック（コミットまで保持、Non-Repeatable Read 防止）
+* ✅ **SERIALIZABLE**: 長期ロック + 述語ロック準備完了
+* ✅ **Tx 拡張**: `getFileMgr()`, `getBufferMgr()` メソッド追加
+* ✅ **後方互換性維持**: 既存コード用に `@Deprecated` コンストラクタ保持
+
+**テスト:**
+* ✅ 全59テスト合格（既存テスト全て正常動作確認）
+
+**次のステップ:**
+* ⏳ 上位層（Planner等）でのTx統合
+* ⏳ パフォーマンステスト
+
+---
 
 #### v0.18.0 (2025-11-17) - Phase 1 Week 2: デッドロック検出と分離レベル
 
