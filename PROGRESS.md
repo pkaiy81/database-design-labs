@@ -119,26 +119,42 @@
 **テスト結果**: 30テスト全て成功 ✅  
 **コミット**: 完了 (feature/phase1-locking ブランチ)
 
-### Week 2: デッドロック検出と分離レベル ⏳ **次のステップ**
+### Week 2: デッドロック検出と分離レベル ✅ **完了** (2025-11-17)
 
-- [ ] Wait-For Graph 実装
-  - [ ] グラフ構築
-  - [ ] サイクル検出アルゴリズム
-  - [ ] 単体テスト
-- [ ] `DeadlockDetector` クラス作成
-  - [ ] 周期的なデッドロック検出
-  - [ ] Victim 選択
-  - [ ] 自動ロールバック
-  - [ ] 単体テスト
-- [ ] `IsolationLevel` enum 作成
-  - [ ] READ UNCOMMITTED
-  - [ ] READ COMMITTED
-  - [ ] REPEATABLE READ
-  - [ ] SERIALIZABLE
-- [ ] 各分離レベルの実装
-  - [ ] ロック保持期間の制御
-  - [ ] 述語ロック (SERIALIZABLE)
-  - [ ] 統合テスト
+- [x] Wait-For Graph 実装
+  - [x] グラフ構築 (`WaitForGraph.java`)
+  - [x] DFS サイクル検出アルゴリズム
+  - [x] 単体テスト (11テスト)
+- [x] `DeadlockDetector` クラス作成
+  - [x] 周期的なデッドロック検出（バックグラウンドスレッド）
+  - [x] Victim 選択（最大ID戦略）
+  - [x] 自動ロールバック対応
+  - [x] 単体テスト (7テスト)
+- [x] `IsolationLevel` enum 作成
+  - [x] READ_UNCOMMITTED
+  - [x] READ_COMMITTED
+  - [x] REPEATABLE_READ
+  - [x] SERIALIZABLE
+- [x] 各分離レベルの実装
+  - [x] ロック保持期間の制御
+  - [x] READ_COMMITTED: 短期ロック（読取後即座に解放）
+  - [x] REPEATABLE_READ: 長期ロック（コミットまで保持）
+  - [x] 述語ロック (SERIALIZABLE) フレームワーク準備完了
+  - [x] 統合テスト (11テスト)
+- [x] デモプログラム作成
+  - [x] `DeadlockAndIsolationDemo.java` 作成
+  - [x] 分離レベルのプロパティ表示
+  - [x] Non-Repeatable Read の防止デモ
+  - [x] 実行確認 ✅
+- [x] ドキュメント作成
+  - [x] `docs/PHASE1_WEEK2_DEADLOCK_AND_ISOLATION.md` 作成
+  - [x] Wait-For Graph アーキテクチャ図
+  - [x] DFS サイクル検出アルゴリズム
+  - [x] 分離レベル比較表
+  - [x] Non-Repeatable Read 防止タイムライン図
+
+**テスト結果**: 29テスト全て成功 ✅ (全体59テスト合格)  
+**コミット**: 準備完了 (feature/phase1-week2-deadlock-detection ブランチ)
 
 ### Week 3: TableScan統合とパフォーマンス
 
@@ -157,7 +173,7 @@
   - [ ] レビュー対応
   - [ ] マージ
 
-**完了率**: 53% (16/30タスク完了)
+**完了率**: 73% (22/30タスク完了)
 
 ---
 

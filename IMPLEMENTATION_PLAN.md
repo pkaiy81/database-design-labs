@@ -99,8 +99,8 @@
 
 **目標**: マルチスレッド環境でのデータ整合性確保  
 **期間**: 2-3週間  
-**状態**: 🟢 **Week 1完了** (2025-11-16)  
-**ブランチ**: `feature/phase1-locking`
+**状態**: 🟢 **Week 1-2完了** (2025-11-17)  
+**ブランチ**: `feature/phase1-locking`, `feature/phase1-week2-deadlock-detection`
 
 #### 1.1 ロック管理 (`app.tx.lock`) ✅ **完了**
 
@@ -111,7 +111,9 @@
 ✅ LockAbortException.java // タイムアウト例外
 ✅ LockTable.java         // グローバルロックテーブル
 ✅ LockManager.java       // トランザクション毎のロック追跡
-⏳ DeadlockDetector.java  // デッドロック検出（Week 2予定）
+✅ WaitForGraph.java      // 待機グラフ、DFSサイクル検出
+✅ DeadlockDetector.java  // バックグラウンドデッドロック検出
+✅ IsolationLevel.java    // SQL標準分離レベル
 ```
 
 **実装完了項目**:
@@ -122,55 +124,63 @@
 - [x] **ロックアップグレード** (S→X)
 - [x] **タイムアウト機構** (デフォルト10秒)
 - [x] **FIFO待機キュー** (公平性保証)
-- [ ] デッドロック検出（Wait-For Graph）← **Week 2で実装予定**
+- [x] **デッドロック検出**（Wait-For Graph、DFS サイクル検出） ✅
+- [x] **4つのSQL標準分離レベル**（READ_UNCOMMITTED, READ_COMMITTED, REPEATABLE_READ, SERIALIZABLE） ✅
 
 **変更済みファイル**:
 
-- ✅ `Tx.java`: getInt/getString→sLock, setInt/setString→xLock, commit/rollback→release
+- ✅ `Tx.java`: 
+  - getInt/getString→sLock, setInt/setString→xLock, commit/rollback→release
+  - 分離レベルサポート（コンストラクタ引数、条件付きロック）
+  - READ_COMMITTED: 短期ロック（読取後即座に解放）
+- ✅ `LockTable.java`: デッドロック検出統合（enable/disable API）
+- ✅ `LockManager.java`: unlock() メソッド追加（短期ロック用）
 - ⏳ `TableScan.java`: レコードロック統合（Week 3予定）
 
 **テスト状況**:
 
-- [x] **単体テスト**: 30テスト全て成功 ✅
-  - `LockTest.java` (10テスト)
-  - `LockTableTest.java` (6テスト)
-  - `LockManagerTest.java` (9テスト)
-  - `ConcurrencyTest.java` (5テスト)
-- [x] **デモプログラム**: `LockingDemo.java` 実行成功
-  - Lost Update 防止 ✅
-  - Dirty Read 防止 ✅
-  - 共有ロック（複数読み取り）✅
+- [x] **単体テスト**: 59テスト全て成功 ✅
+  - Week 1: `LockTest.java` (10), `LockTableTest.java` (6), `LockManagerTest.java` (9), `ConcurrencyTest.java` (5)
+  - Week 2: `WaitForGraphTest.java` (11), `DeadlockDetectorTest.java` (7), `IsolationLevelTest.java` (11)
+- [x] **デモプログラム実行成功**:
+  - Week 1: `LockingDemo.java` (Lost Update防止、Dirty Read防止、共有ロック)
+  - Week 2: `DeadlockAndIsolationDemo.java` (分離レベル、Non-Repeatable Read防止)
 
 **ドキュメント**:
 
-- [x] `docs/LOCKING_LOGIC_DIAGRAMS.md` 完成
-  - アーキテクチャ図
-  - シーケンス図
-  - 状態遷移図
-  - Strict 2PL プロトコル説明
+- [x] `docs/LOCKING_LOGIC_DIAGRAMS.md` 完成（Week 1）
+  - アーキテクチャ図、シーケンス図、状態遷移図、Strict 2PL プロトコル説明
+- [x] `docs/PHASE1_WEEK2_DEADLOCK_AND_ISOLATION.md` 完成（Week 2）
+  - Wait-For Graph アーキテクチャ、DFS サイクル検出、分離レベル比較表、Non-Repeatable Read 防止図
 
-#### 1.2 分離レベル (`app.tx.isolation`) ⏳ **Week 2予定**
+#### 1.2 分離レベルとデッドロック検出 (`app.tx.lock`) ✅ **Week 2完了** (2025-11-17)
 
 ```java
-// Week 2で作成予定
-- IsolationLevel.java    // READ_UNCOMMITTED, READ_COMMITTED, etc.
-- DeadlockDetector.java  // Wait-For Graph実装
+// Week 2で作成完了
+✅ WaitForGraph.java       // DFSサイクル検出、待機グラフ管理
+✅ DeadlockDetector.java   // バックグラウンド検出スレッド
+✅ IsolationLevel.java     // SQL標準分離レベル enum
 ```
 
-**実装予定項目**:
+**実装完了項目**:
 
-- [ ] READ UNCOMMITTED
-- [ ] READ COMMITTED
-- [ ] REPEATABLE READ
-- [ ] SERIALIZABLE
-- [ ] Wait-For Graph によるデッドロック検出
-- [ ] Victim 選択と自動ロールバック
+- [x] **Wait-For Graph**: ConcurrentHashMap ベース、O(V+E) DFS サイクル検出
+- [x] **DeadlockDetector**: ScheduledExecutorService、設定可能な検出間隔（デフォルト1000ms）
+- [x] **Victim 選択戦略**: 最大ID（最新トランザクション）を選択
+- [x] **4つの分離レベル**:
+  - READ_UNCOMMITTED: ロックなし読取り
+  - READ_COMMITTED: 短期ロック（読取後即座に解放）
+  - REPEATABLE_READ: 長期ロック（コミットまで保持）
+  - SERIALIZABLE: 述語ロックフレームワーク（準備完了）
+- [x] **Tx 統合**: 分離レベル別条件付きロック
+- [x] **LockManager.unlock()**: 短期ロック解放メソッド追加
 
-**追加テスト計画**:
+**テスト完了**:
 
-- [ ] Non-repeatable Read防止テスト
-- [ ] Phantom Read防止テスト
-- [ ] デッドロック検出テスト
+- [x] Non-repeatable Read防止テスト (IsolationLevelTest)
+- [x] デッドロック検出テスト (DeadlockDetectorTest: 7テスト)
+- [x] Wait-For Graph テスト (WaitForGraphTest: 11テスト)
+- [x] 分離レベルテスト (IsolationLevelTest: 11テスト)
 
 ---
 

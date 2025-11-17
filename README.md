@@ -600,10 +600,41 @@ This project is for educational purposes.
 
 ### バージョニング
 
-* Current: `v0.17.0`（Phase 1 Week 1: ロック機能実装完了）
-* ブランチ: `feature/phase1-locking`
+* Current: `v0.18.0`（Phase 1 Week 2: デッドロック検出と分離レベル実装完了）
+* ブランチ: `feature/phase1-week2-deadlock-detection`
 
 ### 最近の更新
+
+#### v0.18.0 (2025-11-17) - Phase 1 Week 2: デッドロック検出と分離レベル
+
+**新機能:**
+* ✅ **Wait-For Graph**: DFS ベースのサイクル検出（O(V+E) 複雑度）
+* ✅ **DeadlockDetector**: バックグラウンド検出スレッド（設定可能な間隔、デフォルト1000ms）
+* ✅ **Victim 選択**: 最大ID戦略（最新トランザクションを優先的にアボート）
+* ✅ **4つの SQL 標準分離レベル**:
+  - `READ_UNCOMMITTED`: ロックなし読取り
+  - `READ_COMMITTED`: 短期ロック（読取後即座に解放）
+  - `REPEATABLE_READ`: 長期ロック（コミットまで保持）
+  - `SERIALIZABLE`: 述語ロックフレームワーク準備完了
+* ✅ **Tx 統合**: 分離レベル別条件付きロック
+* ✅ **Non-Repeatable Read 防止**: REPEATABLE_READ での一貫性保証
+
+**テスト:**
+* ✅ 単体テスト 29件全て成功（全体59テスト合格）
+  - `WaitForGraphTest.java` (11テスト): サイクル検出、複雑グラフ
+  - `DeadlockDetectorTest.java` (7テスト): バックグラウンド検出、Victim 選択
+  - `IsolationLevelTest.java` (11テスト): 分離レベルプロパティ
+* ✅ デモプログラム (`DeadlockAndIsolationDemo.java`) 実行成功
+  - 全分離レベルの動作確認
+  - Non-Repeatable Read 防止デモ
+
+**ドキュメント:**
+* ✅ `docs/PHASE1_WEEK2_DEADLOCK_AND_ISOLATION.md` - Wait-For Graph、分離レベル比較表、Non-Repeatable Read 防止図
+
+**次のステップ:**
+* ⏳ Phase 1 Week 3: TableScan統合、パフォーマンステスト
+
+---
 
 #### v0.17.0 (2025-11-16) - Phase 1 Week 1: ロック管理基盤
 
@@ -622,9 +653,5 @@ This project is for educational purposes.
 
 **ドキュメント:**
 * ✅ `docs/LOCKING_LOGIC_DIAGRAMS.md` - ロックシステムの詳細図
-
-**次のステップ:**
-* ⏳ Phase 1 Week 2: デッドロック検出 (Wait-For Graph)
-* ⏳ Phase 1 Week 3: 分離レベル、TableScan統合
 
 #### v0.16.0 - DDL/DML/DQL 完全対応
