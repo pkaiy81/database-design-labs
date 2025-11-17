@@ -22,6 +22,7 @@ public final class TableScan implements app.query.Scan {
 
     /**
      * トランザクション統合版コンストラクタ
+     * 
      * @param tx トランザクションインスタンス（ロック取得に使用）
      * @param tf テーブルファイル
      */
@@ -34,6 +35,7 @@ public final class TableScan implements app.query.Scan {
     /**
      * 後方互換性のためのコンストラクタ（トランザクションなし）
      * 注意: ロック機能を使用しない場合のみ使用
+     * 
      * @deprecated Txを使用するコンストラクタを推奨
      */
     @Deprecated
