@@ -72,12 +72,13 @@ public class LockTable {
     /**
      * Enables deadlock detection using a Wait-For Graph.
      * 
-     * <p>This should be called once during system initialization.
+     * <p>
+     * This should be called once during system initialization.
      * When enabled, the lock table will:
      * <ul>
-     *   <li>Track wait-for relationships between transactions</li>
-     *   <li>Periodically detect deadlock cycles</li>
-     *   <li>Automatically abort victim transactions</li>
+     * <li>Track wait-for relationships between transactions</li>
+     * <li>Periodically detect deadlock cycles</li>
+     * <li>Automatically abort victim transactions</li>
      * </ul>
      * 
      * @param detectionIntervalMs interval between deadlock checks (milliseconds)
@@ -86,13 +87,14 @@ public class LockTable {
         if (waitForGraph != null) {
             throw new IllegalStateException("Deadlock detection is already enabled");
         }
-        
+
         this.waitForGraph = new WaitForGraph();
         this.deadlockDetector = new DeadlockDetector(waitForGraph, detectionIntervalMs);
-        
-        // TODO: Set abort callback - this requires integration with transaction management
+
+        // TODO: Set abort callback - this requires integration with transaction
+        // management
         // deadlockDetector.setAbortCallback(txNum -> abortTransaction(txNum));
-        
+
         deadlockDetector.start();
     }
 

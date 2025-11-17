@@ -76,12 +76,12 @@ public final class Tx implements AutoCloseable {
         Buffer buf = bm.pin(blk);
         try {
             int value = buf.contents().getInt(offset);
-            
+
             // READ_COMMITTED: 読み取り後すぐにロック解放
             if (isolationLevel == IsolationLevel.READ_COMMITTED) {
                 lockMgr.unlock(blk, txId);
             }
-            
+
             return value;
         } finally {
             bm.unpin(buf);
@@ -105,12 +105,12 @@ public final class Tx implements AutoCloseable {
         Buffer buf = bm.pin(blk);
         try {
             String value = buf.contents().getString(offset);
-            
+
             // READ_COMMITTED: 読み取り後すぐにロック解放
             if (isolationLevel == IsolationLevel.READ_COMMITTED) {
                 lockMgr.unlock(blk, txId);
             }
-            
+
             return value;
         } finally {
             bm.unpin(buf);
