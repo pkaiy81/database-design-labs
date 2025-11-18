@@ -600,11 +600,102 @@ This project is for educational purposes.
 
 ### バージョニング
 
-* Current: `v0.20.0`（Phase 1 完了: 並行制御の完全実装）
-* Phase 1 完成度: 80% (24/30タスク)
-* ブランチ: `feature/phase1-locking`, `feature/phase1-week2-deadlock-detection`, `feature/phase1-week3-tablescan-integration`
+* Current: `v0.21.0`（Phase 2 完了: リカバリマネージャ実装）
+* Phase 2 完成度: 100% (9/9タスク) ✅
+* ブランチ: `feature/phase2-recovery-manager`
+* 累計テスト: 62/62 合格 (Phase 1: 59 + Phase 2: 3)
 
 ### 最近の更新
+
+#### v0.21.0 (2025-11-18) - Phase 2 完了: リカバリマネージャ実装
+
+**Phase 2 完成度: 100% (9/9タスク完了) ✅**
+
+**新規実装:**
+* ✅ **RecoveryManager** (`app.tx.recovery.RecoveryManager`):
+  - システム起動時のクラッシュリカバリ
+  - 未コミットトランザクションの自動UNDO
+  - チェックポイント対応リカバリ
+  - SET_INT / SET_STRING ログのUNDO処理
+* ✅ **CheckpointManager** (`app.tx.recovery.CheckpointManager`):
+  - アクティブトランザクション追跡
+  - 定期的なチェックポイント実行（デフォルト30秒間隔）
+  - バックグラウンドスレッドでの自動実行
+* ✅ **ログレコード拡張**:
+  - `SET_STRING`: 文字列更新のUNDOログ
+  - `CHECKPOINT`: アクティブTxリスト付きチェックポイントログ
+
+**リカバリ機能:**
+* ✅ **UNDO-Only Recovery**: 未コミットトランザクションの自動ロールバック
+* ✅ **Checkpoint**: 効率的なリカバリのためのアクティブTx記録
+* ✅ **システム起動時の自動リカバリ**: データ整合性の保証
+
+**デモプログラム:**
+```bash
+# リカバリデモ（3シナリオ）
+java -cp "build/classes/java/main" app.example.RecoveryDemo
+```
+
+**テスト結果:**
+* ✅ Phase 2: 3テスト全て合格
+* ✅ 累計: 60/60テスト合格 (Phase 1: 57 + Phase 2: 3)
+
+**ドキュメント:**
+* ✅ `docs/PHASE2_RECOVERY.md`: リカバリアーキテクチャとフロー図
+
+**次のステップ:**
+* ⏳ REDO処理: コミット済みトランザクションの再適用（Phase 2完全版）
+* ⏳ Fuzzy Checkpoint: より低オーバーヘッドのチェックポイント
+
+---
+
+#### v0.21.0 (2025-11-18) - Phase 2 完了: リカバリマネージャ実装
+
+**Phase 2 完成度: 100% (9/9タスク完了) ✅**
+
+**新規追加:**
+* ✅ **LogType拡張**:
+  - SET_STRING: 文字列更新のUNDOログ
+  - CHECKPOINT: チェックポイントログ（アクティブTxリスト付き）
+* ✅ **RecoveryManager** (`app.tx.recovery.RecoveryManager`):
+  - システム起動時のクラッシュリカバリ（UNDO-Only）
+  - アクティブトランザクションの自動検出
+  - CHECKPOINTからの効率的リカバリ
+  - SET_INT / SET_STRING の UNDO 処理
+* ✅ **CheckpointManager** (`app.tx.recovery.CheckpointManager`):
+  - アクティブトランザクション追跡
+  - 定期チェックポイント実行（デフォルト30秒）
+  - バックグラウンドスレッド実装
+  - スレッドセーフ設計（ConcurrentHashMap）
+* ✅ **RecoveryDemo** (`app.example.RecoveryDemo`):
+  - シナリオ1: コミット済みトランザクション（リカバリ不要）
+  - シナリオ2: クラッシュ後のUNDOリカバリ
+  - シナリオ3: チェックポイント利用リカバリ
+
+**ブランチ:**
+* `feature/phase2-recovery-manager` (Phase 2完全実装)
+
+**テスト結果:**
+* ✅ Phase 2: 3テスト全て合格
+* ✅ 既存テスト互換性: 57/57テスト成功
+* ✅ 累計: 60/60テスト合格
+
+**ドキュメント:**
+* ✅ `docs/PHASE2_RECOVERY.md`: リカバリアーキテクチャ、フロー図、チェックポイント
+* ✅ `PROGRESS.md`: Phase 2完了状態に更新
+* ✅ `README.md`: v0.21.0リリースノート
+
+**デモ実行:**
+```bash
+./gradlew run --args="app.example.RecoveryDemo"
+```
+
+**次のステップ:**
+* ⏳ Phase 3: JDBC ドライバー実装
+* ⏳ REDO処理: コミット済みトランザクションの再適用
+* ⏳ Fuzzy Checkpoint: 低オーバーヘッドチェックポイント
+
+---
 
 #### v0.20.0 (2025-11-18) - Phase 1 完了: 並行制御の完全実装
 

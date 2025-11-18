@@ -200,7 +200,7 @@ public final class Tx implements AutoCloseable {
         lockMgr.release(txId);
     }
 
-    /** rollback: 自Txのログを後ろ向きに辿り、SET_INT を元に戻す */
+    /** rollback: 自Txのログを後ろ向きに辿り、SET_INT/SET_STRING を元に戻す */
     public void rollback() {
         List<byte[]> all = new LogReader(logDir).readAll();
         for (int i = all.size() - 1; i >= 0; i--) {
@@ -211,7 +211,17 @@ public final class Tx implements AutoCloseable {
                 BlockId b = new BlockId(parsed.filename, parsed.blk);
                 Buffer buf = bm.pin(b);
                 try {
-                    buf.contents().setInt(parsed.offset, parsed.oldVal);
+                    buf.contents().setInt(parsed.offset, parsed.oldValInt);
+                    buf.setDirty();
+                    buf.flushIfDirty();
+                } finally {
+                    bm.unpin(buf);
+                }
+            } else if (parsed.type == LogType.SET_STRING) {
+                BlockId b = new BlockId(parsed.filename, parsed.blk);
+                Buffer buf = bm.pin(b);
+                try {
+                    buf.contents().setString(parsed.offset, parsed.oldValString);
                     buf.setDirty();
                     buf.flushIfDirty();
                 } finally {
