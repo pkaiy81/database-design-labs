@@ -600,10 +600,95 @@ This project is for educational purposes.
 
 ### バージョニング
 
-* Current: `v0.18.0`（Phase 1 Week 2: デッドロック検出と分離レベル実装完了）
-* ブランチ: `feature/phase1-week2-deadlock-detection`
+* Current: `v0.20.0`（Phase 1 完了: 並行制御の完全実装）
+* Phase 1 完成度: 80% (24/30タスク)
+* ブランチ: `feature/phase1-locking`, `feature/phase1-week2-deadlock-detection`, `feature/phase1-week3-tablescan-integration`
 
 ### 最近の更新
+
+#### v0.20.0 (2025-11-18) - Phase 1 完了: 並行制御の完全実装
+
+**Phase 1 完成度: 80% (24/30タスク完了) ✅**
+
+**新規追加:**
+* ✅ **Phase 1 統合デモプログラム** (`Phase1IntegratedDemo.java`):
+  - 全機能の概要説明とデモプログラム実行方法
+  - テスト結果サマリー（59/59テスト成功）
+  - アーキテクチャ図とドキュメントリンク
+* ✅ **Phase 1 アーキテクチャドキュメント** (`docs/PHASE1_ARCHITECTURE.md`):
+  - システムアーキテクチャ全体図
+  - S-Lock / X-Lock 獲得フロー
+  - デッドロック検出フロー
+  - 分離レベル別ロック動作
+  - トランザクションライフサイクル
+  - ロック互換性マトリクス
+  - パフォーマンス特性
+  - エラーハンドリング
+
+**Phase 1 実装機能（Week 1-3）:**
+* ✅ **Week 1: 基本的なロック機能**
+  - Lock: 共有ロック（S-Lock）と排他ロック（X-Lock）
+  - LockTable: ブロック単位のロック管理
+  - LockManager: トランザクション単位のロック管理
+  - Strict 2PL プロトコル実装
+* ✅ **Week 2: デッドロック検出と分離レベル**
+  - WaitForGraph: Wait-For グラフによるデッドロック検出
+  - DeadlockDetector: 周期的なデッドロック検出（100ms間隔）
+  - IsolationLevel: 4つの分離レベル
+* ✅ **Week 3: TableScan統合**
+  - TableScan操作が自動的にロック管理
+  - next(): 自動的にS-Lock
+  - getInt/getString(): 分離レベルに応じてS-Lock
+  - setInt/setString/insert/delete(): 自動的にX-Lock
+
+**デモプログラム実行方法:**
+```bash
+# 基本的なロック機能のデモ
+./gradlew run --args="app.tx.lock.LockingDemo"
+
+# デッドロック検出と分離レベルのデモ
+./gradlew run --args="app.tx.lock.DeadlockAndIsolationDemo"
+
+# Phase 1 統合デモ（ドキュメント表示）
+./gradlew run --args="app.example.Phase1IntegratedDemo"
+```
+
+**テスト:**
+* ✅ 全59テスト合格
+  - Week 1: 30テスト（Lock, LockTable, LockManager, 並行トランザクション）
+  - Week 2: 29テスト（WaitForGraph, DeadlockDetector, IsolationLevel）
+  - Week 3: 既存テスト全て通過（TableScan統合検証）
+
+**ドキュメント:**
+* ✅ `docs/PHASE1_ARCHITECTURE.md`: Phase 1全体アーキテクチャ
+* ✅ `docs/LOCKING_LOGIC_DIAGRAMS.md`: Week 1詳細ロジック図
+* ✅ `docs/PHASE1_WEEK2_DEADLOCK_AND_ISOLATION.md`: Week 2詳細説明
+
+**次のステップ（Phase 2）:**
+* ⏳ RecoveryManager: UNDO/REDOログ管理
+* ⏳ CheckpointManager: チェックポイント機能
+* ⏳ クラッシュリカバリ: システム起動時の自動復旧
+
+---
+
+#### v0.19.0 (2025-11-17) - Phase 1 Week 3: TableScan ロック統合
+
+**新機能:**
+* ✅ **TableScan へのトランザクション統合**: Tx パラメータを受け取るコンストラクタ追加
+* ✅ **分離レベル別ロック動作**:
+  - `next()`, `getInt()`, `getString()`: 分離レベルに応じた読取ロック
+  - `insert()`, `delete()`, `setInt()`, `setString()`: 排他ロック取得
+* ✅ **READ_UNCOMMITTED**: ロックなし読取り（高速、Dirty Read 許容）
+* ✅ **READ_COMMITTED**: 短期ロック（読取後即座に解放、Non-Repeatable Read 許容）
+* ✅ **REPEATABLE_READ**: 長期ロック（コミットまで保持、Non-Repeatable Read 防止）
+* ✅ **SERIALIZABLE**: 長期ロック + 述語ロック準備完了
+* ✅ **Tx 拡張**: `getFileMgr()`, `getBufferMgr()` メソッド追加
+* ✅ **後方互換性維持**: 既存コード用に `@Deprecated` コンストラクタ保持
+
+**テスト:**
+* ✅ 全59テスト合格（既存テスト全て正常動作確認）
+
+---
 
 #### v0.18.0 (2025-11-17) - Phase 1 Week 2: デッドロック検出と分離レベル
 

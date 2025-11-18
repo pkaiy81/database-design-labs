@@ -60,6 +60,24 @@ public final class Tx implements AutoCloseable {
     }
 
     /**
+     * FileMgrインスタンスを取得します（TableScan等での使用のため）。
+     * 
+     * @return FileMgrインスタンス
+     */
+    public FileMgr getFileMgr() {
+        return fm;
+    }
+
+    /**
+     * BufferMgrインスタンスを取得します。
+     * 
+     * @return BufferMgrインスタンス
+     */
+    public BufferMgr getBufferMgr() {
+        return bm;
+    }
+
+    /**
      * 指定されたブロックとオフセットから整数値を読み取ります。
      * 読み取り前に共有ロック（S-Lock）を取得します（分離レベルに応じて）。
      * 

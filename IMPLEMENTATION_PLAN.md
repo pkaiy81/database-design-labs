@@ -99,8 +99,8 @@
 
 **目標**: マルチスレッド環境でのデータ整合性確保  
 **期間**: 2-3週間  
-**状態**: 🟢 **Week 1-2完了** (2025-11-17)  
-**ブランチ**: `feature/phase1-locking`, `feature/phase1-week2-deadlock-detection`
+**状態**: 🟢 **Week 1-3完了** (2025-11-17)  
+**ブランチ**: `feature/phase1-locking`, `feature/phase1-week2-deadlock-detection`, `feature/phase1-week3-tablescan-integration`
 
 #### 1.1 ロック管理 (`app.tx.lock`) ✅ **完了**
 
@@ -133,9 +133,14 @@
   - getInt/getString→sLock, setInt/setString→xLock, commit/rollback→release
   - 分離レベルサポート（コンストラクタ引数、条件付きロック）
   - READ_COMMITTED: 短期ロック（読取後即座に解放）
+  - getFileMgr()/getBufferMgr() アクセサメソッド追加
 - ✅ `LockTable.java`: デッドロック検出統合（enable/disable API）
 - ✅ `LockManager.java`: unlock() メソッド追加（短期ロック用）
-- ⏳ `TableScan.java`: レコードロック統合（Week 3予定）
+- ✅ `TableScan.java`: レコードロック統合（Week 3完了）
+  - Tx パラメータ受け取るコンストラクタ追加
+  - next(), getInt(), getString() に読取ロック統合
+  - insert(), delete(), setInt(), setString() に書込ロック統合
+  - 後方互換性維持（@Deprecated コンストラクタ）
 
 **テスト状況**:
 
