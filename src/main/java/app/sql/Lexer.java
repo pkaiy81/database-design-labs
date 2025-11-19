@@ -112,15 +112,30 @@ public final class Lexer {
     }
 
     private void readString() {
-        i++; // skip '
+        i++; // skip opening '
         int j = i;
-        while (i < s.length() && s.charAt(i) != '\'')
-            i++;
-        if (i >= s.length())
-            throw error("unterminated string");
-        text = s.substring(j, i);
-        i++; // skip closing '
-        type = TokenType.STRING;
+        StringBuilder sb = new StringBuilder();
+        while (i < s.length()) {
+            char c = s.charAt(i);
+            if (c == '\'') {
+                // Check for escaped quote ''
+                if (i + 1 < s.length() && s.charAt(i + 1) == '\'') {
+                    sb.append(s, j, i + 1); // Include up to first '
+                    i += 2; // Skip both ''
+                    j = i; // Reset start
+                } else {
+                    // End of string
+                    sb.append(s, j, i);
+                    i++; // skip closing '
+                    text = sb.toString();
+                    type = TokenType.STRING;
+                    return;
+                }
+            } else {
+                i++;
+            }
+        }
+        throw error("unterminated string");
     }
 
     private void readIdentOrKeyword() {

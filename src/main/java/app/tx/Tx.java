@@ -175,13 +175,17 @@ public final class Tx implements AutoCloseable {
         Buffer buf = bm.pin(blk);
         try {
             Page p = buf.contents();
-            // 文字列の場合、旧値のログは省略（簡易実装）
+            String old = p.getString(offset);
 
-            // ページ更新
+            // 1) 旧値をログへ
+            log.append(LogCodec.setString(txId, blk.filename(), blk.number(), offset, old));
+            log.flush(0); // ログを先に永続化（WAL）
+
+            // 2) ページ更新
             p.setString(offset, newVal);
             buf.setDirty();
 
-            // データをフラッシュ
+            // 3) データをフラッシュ
             buf.flushIfDirty();
         } finally {
             bm.unpin(buf);

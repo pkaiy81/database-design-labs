@@ -203,7 +203,7 @@ public final class TableScan implements app.query.Scan {
      * トランザクション有効時：書き込み前に排他ロック（X-Lock）を取得
      */
     public void setInt(String fld, int v) {
-        // トランザクション有効時：排他ロックを取得
+        // トランザクション有効時：書き込み前に排他ロック（X-Lock）を取得
         if (tx != null) {
             BlockId blk = new BlockId(tf.filename(), currBlk);
             acquireWriteLock(blk);

@@ -600,12 +600,88 @@ This project is for educational purposes.
 
 ### バージョニング
 
-* Current: `v0.21.0`（Phase 2 完了: リカバリマネージャ実装）
-* Phase 2 完成度: 100% (9/9タスク) ✅
-* ブランチ: `feature/phase2-recovery-manager`
-* 累計テスト: 62/62 合格 (Phase 1: 59 + Phase 2: 3)
+* Current: `v0.22.0`（Phase 3 完了: JDBC ドライバー実装）
+* Phase 3 完成度: 100% (34/34タスク) ✅
+* ブランチ: `feature/phase3-jdbc-driver`
+* 累計テスト: 74/74 合格 (Phase 1: 57 + Phase 2: 3 + Phase 3: 14)
 
 ### 最近の更新
+
+#### v0.22.0 (2025-11-18) - Phase 3 完了: JDBC ドライバー実装
+
+**Phase 3 完成度: 100% (34/34タスク完了) ✅**
+
+**新規実装:**
+* ✅ **JDBC 4.3 ドライバー** (8クラス、約2,700行):
+  - `MiniDBDriver`: JDBC DriverManager 統合（自動登録）
+  - `MiniDBConnection`: トランザクション管理、AutoCommit、分離レベル設定
+  - `MiniDBStatement`: DDL/DML実行（CREATE/DROP TABLE, INSERT/UPDATE/DELETE）
+  - `MiniDBPreparedStatement`: パラメータバインディング（? プレースホルダー）、SQL標準エスケープ
+  - `MiniDBResultSet`: Scanラッパー、JDBC カーソル
+  - `MiniDBResultSetMetaData`: カラムメタデータ
+  - `MiniDBDatabaseMetaData`: システムカタログ連携、getTables/getColumns
+  - `MiniDBMetadataResultSet`: メタデータクエリラッパー
+
+**コアエンジン修正:**
+* ✅ **Lexer.java**: SQL標準 `''` エスケープ対応（'O''Brien' → "O'Brien"）
+* ✅ **Planner.java**: Txパラメータ追加（executeInsert/Update/Delete）
+* ✅ **Tx.java**: setString() に古い値のログ追加（WAL、UPDATE rollback対応）
+* ✅ **MiniDBConnection**: afterAutoCommit() でトランザクションクリーンアップ
+
+**テスト:**
+* ✅ `JdbcIntegrationTest.java`: 14テスト全て合格
+  - Driver登録、Connection、DDL/DML、PreparedStatement、Transaction、String escaping、Isolation levels
+
+**使用例:**
+```java
+// JDBC接続
+Connection conn = DriverManager.getConnection("jdbc:minidb:data");
+
+// テーブル作成
+Statement stmt = conn.createStatement();
+stmt.executeUpdate("CREATE TABLE students (id INT, name STRING(50))");
+
+// INSERT
+stmt.executeUpdate("INSERT INTO students VALUES (1, 'Alice')");
+
+// PreparedStatement（パラメータバインディング）
+PreparedStatement pstmt = conn.prepareStatement(
+    "INSERT INTO students (id, name) VALUES (?, ?)"
+);
+pstmt.setInt(1, 2);
+pstmt.setString(2, "O'Brien"); // 自動エスケープ: 'O''Brien'
+pstmt.executeUpdate();
+
+// SELECT
+ResultSet rs = stmt.executeQuery("SELECT id, name FROM students");
+while (rs.next()) {
+    System.out.println(rs.getInt("id") + ": " + rs.getString("name"));
+}
+
+// トランザクション制御
+conn.setAutoCommit(false);
+stmt.executeUpdate("UPDATE students SET name = 'Bobby' WHERE id = 2");
+conn.commit();
+
+// クリーンアップ
+rs.close();
+stmt.close();
+pstmt.close();
+conn.close();
+```
+
+**既知の制限:**
+* ⚠️ INSERT/DELETE rollback 未対応（スロット割り当てログが必要）
+* ⚠️ CREATE INDEX via JDBC 未対応（Planner実装待ち）
+* ⚠️ Batch updates 未実装
+* ⚠️ Savepoints 未実装
+
+**ドキュメント:**
+* ✅ `docs/PHASE3_JDBC.md`: JDBCアーキテクチャ、ロジックフロー図、実装詳細
+* ✅ `PROGRESS.md`: Phase 3 完了状態に更新
+* ✅ `README.md`: v0.22.0リリースノート
+
+---
 
 #### v0.21.0 (2025-11-18) - Phase 2 完了: リカバリマネージャ実装
 

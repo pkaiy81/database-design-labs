@@ -241,12 +241,17 @@ public final class Planner {
     }
 
     public int executeInsert(Ast.InsertStmt stmt) {
+        return executeInsert(stmt, null);
+    }
+    
+    public int executeInsert(Ast.InsertStmt stmt, app.tx.Tx tx) {
         String table = stmt.table;
         Layout layout = mdm.getLayout(table);
         Schema schema = layout.schema();
         TableFile tf = new TableFile(fm, table + ".tbl", layout);
 
-        try (TableScan ts = new TableScan(fm, tf)) {
+        TableScan ts = (tx != null) ? new TableScan(tx, tf) : new TableScan(fm, tf);
+        try (ts) {
             ts.enableIndexMaintenance(mdm, table);
             ts.beforeFirst();
             ts.insert();
@@ -267,6 +272,10 @@ public final class Planner {
     }
 
     public int executeUpdate(Ast.UpdateStmt stmt) {
+        return executeUpdate(stmt, null);
+    }
+    
+    public int executeUpdate(Ast.UpdateStmt stmt, app.tx.Tx tx) {
         String table = stmt.table;
         Layout layout = mdm.getLayout(table);
         Schema schema = layout.schema();
@@ -274,7 +283,8 @@ public final class Planner {
         List<Predicate> predicates = compilePredicates(stmt.where);
 
         int updated = 0;
-        try (TableScan ts = new TableScan(fm, tf)) {
+        TableScan ts = (tx != null) ? new TableScan(tx, tf) : new TableScan(fm, tf);
+        try (ts) {
             ts.enableIndexMaintenance(mdm, table);
             ts.beforeFirst();
             while (ts.next()) {
@@ -299,13 +309,18 @@ public final class Planner {
     }
 
     public int executeDelete(Ast.DeleteStmt stmt) {
+        return executeDelete(stmt, null);
+    }
+    
+    public int executeDelete(Ast.DeleteStmt stmt, app.tx.Tx tx) {
         String table = stmt.table;
         Layout layout = mdm.getLayout(table);
         TableFile tf = new TableFile(fm, table + ".tbl", layout);
         List<Predicate> predicates = compilePredicates(stmt.where);
 
         int deleted = 0;
-        try (TableScan ts = new TableScan(fm, tf)) {
+        TableScan ts = (tx != null) ? new TableScan(tx, tf) : new TableScan(fm, tf);
+        try (ts) {
             ts.enableIndexMaintenance(mdm, table);
             ts.beforeFirst();
             while (ts.next()) {
